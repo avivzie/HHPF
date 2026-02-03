@@ -1,0 +1,76 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Data files (raw datasets - add specific patterns as needed)
+data/raw/*.csv
+data/raw/*.json
+data/raw/*.jsonl
+
+# Processed data (too large for git)
+data/processed/
+data/features/
+
+# Cache
+cache/
+.cache/
+*.cache
+
+# Model outputs
+outputs/models/*.pkl
+outputs/models/*.joblib
+outputs/models/*.model
+
+# Results (keep structure, ignore large files)
+outputs/results/*.parquet
+outputs/results/*.feather
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+tmp/
+temp/
