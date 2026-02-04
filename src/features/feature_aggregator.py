@@ -26,6 +26,10 @@ class FeatureAggregator:
         """Initialize feature aggregator."""
         self.config = load_config("features")['aggregation']
         self.domain_config = load_config("features")['domain']
+        
+        # Initialize shared calculators (lazy load on first use)
+        self.entropy_calc = None
+        self.energy_calc = None
     
     def extract_features_for_prompt(
         self,
@@ -53,7 +57,23 @@ class FeatureAggregator:
         
         # Epistemic uncertainty features
         try:
-            epistemic_features = extract_epistemic_features(response_file)
+            # Lazy initialize calculators on first use
+            if self.entropy_calc is None:
+                logger.info("Initializing SemanticEntropyCalculator (one-time)")
+                from src.features.epistemic_uncertainty import SemanticEntropyCalculator
+                self.entropy_calc = SemanticEntropyCalculator()
+            
+            if self.energy_calc is None:
+                logger.info("Initializing SemanticEnergyCalculator (one-time)")
+                from src.features.epistemic_uncertainty import SemanticEnergyCalculator
+                self.energy_calc = SemanticEnergyCalculator()
+            
+            # Pass shared instances to avoid reloading models
+            epistemic_features = extract_epistemic_features(
+                response_file,
+                entropy_calc=self.entropy_calc,
+                energy_calc=self.energy_calc
+            )
             features.update(epistemic_features)
         except Exception as e:
             logger.warning(f"Failed to extract epistemic features for {prompt_id}: {e}")

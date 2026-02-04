@@ -25,7 +25,7 @@ class SemanticEntropyCalculator:
     
     def __init__(
         self,
-        nli_model: str = "microsoft/deberta-v3-large",
+        nli_model: str = "microsoft/deberta-base-mnli",
         device: Optional[str] = None
     ):
         """
@@ -37,20 +37,27 @@ class SemanticEntropyCalculator:
         """
         self.config = load_config("features")['epistemic_uncertainty']['semantic_entropy']
         
-        # Set device
+        # Set device with MPS fallback for M1 Macs
         if device is None:
-            if torch.backends.mps.is_available():
-                device = "mps"
-            elif torch.cuda.is_available():
-                device = "cuda"
-            else:
+            try:
+                if torch.backends.mps.is_available():
+                    device = "mps"
+                    # Test MPS device
+                    test_tensor = torch.tensor([1.0]).to("mps")
+                    logger.info("MPS device available and working")
+                elif torch.cuda.is_available():
+                    device = "cuda"
+                else:
+                    device = "cpu"
+            except Exception as e:
+                logger.warning(f"MPS failed, falling back to CPU: {e}")
                 device = "cpu"
         
         self.device = device
         logger.info(f"Using device: {self.device}")
         
-        # Load NLI model
-        self.nli_model_name = nli_model or self.config.get('nli_model')
+        # Load NLI model (use MNLI-trained model for proper 3-class NLI)
+        self.nli_model_name = nli_model or self.config.get('nli_model', 'microsoft/deberta-base-mnli')
         logger.info(f"Loading NLI model: {self.nli_model_name}")
         
         self.tokenizer = AutoTokenizer.from_pretrained(self.nli_model_name)
@@ -464,6 +471,8 @@ class SemanticEnergyCalculator:
 
 def extract_epistemic_features(
     response_file: str,
+    entropy_calc=None,
+    energy_calc=None,
     calculate_entropy: bool = True,
     calculate_energy: bool = True,
     calculate_naive: bool = True
@@ -473,6 +482,8 @@ def extract_epistemic_features(
     
     Args:
         response_file: Path to pickled response samples
+        entropy_calc: Shared SemanticEntropyCalculator instance (optional)
+        energy_calc: Shared SemanticEnergyCalculator instance (optional)
         calculate_entropy: Whether to calculate semantic entropy
         calculate_energy: Whether to calculate semantic energy
         calculate_naive: Whether to calculate naive confidence baselines
@@ -489,7 +500,10 @@ def extract_epistemic_features(
     if calculate_entropy:
         texts = [sample['text'] for sample in samples]
         
-        entropy_calc = SemanticEntropyCalculator()
+        # Use shared instance if provided, otherwise create new one
+        if entropy_calc is None:
+            entropy_calc = SemanticEntropyCalculator()
+        
         entropy_result = entropy_calc.calculate_semantic_entropy(texts)
         
         features.update({
