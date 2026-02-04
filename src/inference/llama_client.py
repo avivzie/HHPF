@@ -63,8 +63,13 @@ class LlamaClient:
             if not api_key:
                 raise ValueError("TOGETHER_API_KEY not found in .env")
             
-            self.client = Together(api_key=api_key)
-            logger.info(f"Initialized Together AI client with model: {self.model}")
+            # Initialize with timeout from config
+            timeout = self.config.get('api_timeout', 90)
+            self.client = Together(
+                api_key=api_key,
+                timeout=timeout
+            )
+            logger.info(f"Initialized Together AI client with model: {self.model} (timeout: {timeout}s)")
             
         elif provider == "groq":
             if not OPENAI_AVAILABLE:
@@ -78,11 +83,11 @@ class LlamaClient:
                 api_key=api_key,
                 base_url="https://api.groq.com/openai/v1"
             )
-            # Groq model names
+            # Groq model names (updated to current non-deprecated models)
             if "70b" in self.model.lower():
-                self.model = "llama3-70b-8192"
+                self.model = "llama-3.3-70b-versatile"
             else:
-                self.model = "llama3-8b-8192"
+                self.model = "llama-3.1-8b-instant"
             
             logger.info(f"Initialized Groq client with model: {self.model}")
         else:
@@ -163,14 +168,17 @@ class LlamaClient:
         
         cached = self._load_from_cache(cache_key)
         if cached:
-            logger.debug("Response loaded from cache")
+            logger.debug(f"[Cache] Hit for prompt hash {cache_key[:8]}")
             return cached
         
         # Rate limiting
         rate_limit_delay = self.config.get('rate_limit_delay', 0.5)
         time.sleep(rate_limit_delay)
         
-        # Generate
+        # Generate with detailed logging
+        prompt_preview = prompt[:50].replace('\n', ' ') + "..." if len(prompt) > 50 else prompt
+        logger.info(f"[Generate] Starting generation for prompt: {prompt_preview}")
+        
         try:
             if self.provider == "together":
                 response = self._generate_together(
@@ -183,13 +191,16 @@ class LlamaClient:
             else:
                 raise ValueError(f"Unknown provider: {self.provider}")
             
+            # Log success
+            logger.info(f"[Generate] Success - {response['usage']['total_tokens']} tokens")
+            
             # Save to cache
             self._save_to_cache(cache_key, response)
             
             return response
             
         except Exception as e:
-            logger.error(f"Generation failed: {e}")
+            logger.error(f"[Generate] Failed: {type(e).__name__} - {str(e)[:200]}")
             raise
     
     def _generate_together(
@@ -201,34 +212,70 @@ class LlamaClient:
         logprobs: Optional[int],
         **kwargs
     ) -> Dict[str, Any]:
-        """Generate using Together AI."""
-        response = self.client.completions.create(
-            model=self.model,
-            prompt=prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            logprobs=logprobs,
-            **kwargs
-        )
+        """Generate using Together AI with retry logic."""
+        max_retries = self.config.get('max_retries', 3)
+        retry_delay = self.config.get('retry_delay', 2)
         
-        # Parse response
-        result = {
-            'text': response.choices[0].text,
-            'model': self.model,
-            'provider': 'together',
-            'usage': {
-                'prompt_tokens': response.usage.prompt_tokens,
-                'completion_tokens': response.usage.completion_tokens,
-                'total_tokens': response.usage.total_tokens,
-            }
-        }
+        last_exception = None
         
-        # Add logprobs if requested
-        if logprobs and hasattr(response.choices[0], 'logprobs'):
-            result['logprobs'] = response.choices[0].logprobs
-        
-        return result
+        for attempt in range(max_retries):
+            try:
+                start_time = time.time()
+                logger.info(f"[API Call] Starting Together AI request (attempt {attempt+1}/{max_retries})")
+                
+                response = self.client.completions.create(
+                    model=self.model,
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    logprobs=logprobs,
+                    **kwargs
+                )
+                
+                duration = time.time() - start_time
+                logger.info(f"[API Call] Completed successfully in {duration:.2f}s")
+                
+                # Parse response
+                result = {
+                    'text': response.choices[0].text,
+                    'model': self.model,
+                    'provider': 'together',
+                    'usage': {
+                        'prompt_tokens': response.usage.prompt_tokens,
+                        'completion_tokens': response.usage.completion_tokens,
+                        'total_tokens': response.usage.total_tokens,
+                    }
+                }
+                
+                # Add logprobs if requested
+                if logprobs and hasattr(response.choices[0], 'logprobs'):
+                    result['logprobs'] = response.choices[0].logprobs
+                
+                return result
+                
+            except Exception as e:
+                duration = time.time() - start_time if 'start_time' in locals() else 0
+                error_type = type(e).__name__
+                last_exception = e
+                
+                # Check if it's a timeout or rate limit error
+                is_timeout = 'timeout' in str(e).lower() or 'timed out' in str(e).lower()
+                is_rate_limit = '429' in str(e) or 'rate limit' in str(e).lower()
+                
+                logger.warning(
+                    f"[API Call] Failed (attempt {attempt+1}/{max_retries}): "
+                    f"{error_type} after {duration:.2f}s - {str(e)[:100]}"
+                )
+                
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 2s, 4s, 8s
+                    wait_time = retry_delay * (2 ** attempt)
+                    logger.info(f"[API Call] Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"[API Call] All {max_retries} attempts failed")
+                    raise last_exception
     
     def _generate_groq(
         self,
