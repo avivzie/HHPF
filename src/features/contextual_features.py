@@ -178,13 +178,22 @@ class KnowledgePopularityCalculator:
                           entity['label']
                       ) < rare_threshold)
         
+        # Get unique entity types in this prompt
+        entity_types_present = set(e['label'] for e in entities)
+        
+        # One-hot encode entity types
+        entity_type_features = {
+            f'entity_type_{etype}': int(etype in entity_types_present)
+            for etype in self.entity_types  # Use configured entity types
+        }
+        
         return {
             'avg_entity_rarity': float(agg_rarity),
             'max_entity_rarity': float(np.max(rarity_scores)),
             'min_entity_rarity': float(np.min(rarity_scores)),
             'num_entities': len(entities),
             'num_rare_entities': num_rare,
-            'entity_types': list(set(e['label'] for e in entities))
+            **entity_type_features  # Expand one-hot encoded features
         }
     
     def calculate_knowledge_popularity(self, text: str) -> Dict[str, float]:
