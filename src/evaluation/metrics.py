@@ -77,8 +77,8 @@ class MetricsCalculator:
         confidence = np.abs(y_proba - 0.5)
         sorted_indices = np.argsort(confidence)[::-1]  # Most confident first
         
-        y_true_sorted = y_true[sorted_indices]
-        y_proba_sorted = y_proba[sorted_indices]
+        y_true_sorted = np.array(y_true)[sorted_indices]
+        y_proba_sorted = np.array(y_proba)[sorted_indices]
         
         # Calculate accuracy at different rejection rates
         rejection_rates = np.linspace(0, 0.5, num_points)
@@ -105,7 +105,7 @@ class MetricsCalculator:
         return {
             'rejection_rates': rejection_rates,
             'accuracies': np.array(accuracies),
-            'auc_arc': np.trapz(accuracies, rejection_rates)  # Area under ARC
+            'auc_arc': np.trapezoid(accuracies, rejection_rates)  # Area under ARC
         }
     
     def calculate_ece(

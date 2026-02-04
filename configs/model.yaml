@@ -2,10 +2,10 @@
 
 # Llama-3 Inference Settings
 llama:
-  # Model selection
-  model_8b: "meta-llama/Llama-3-8b-chat-hf"
-  model_70b: "meta-llama/Llama-3-70b-chat-hf"
-  default_model: "meta-llama/Llama-3-8b-chat-hf"
+  # Model selection (Together AI serverless models)
+  model_8b: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+  model_70b: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+  default_model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
   
   # Generation parameters
   max_tokens: 1024
@@ -14,17 +14,17 @@ llama:
   top_k: 50
   
   # Stochastic sampling for semantic entropy
-  num_samples: 10
+  num_samples: 5  # Reduced from 10 to 5 (2026-02-04) to speed up generation and reduce API timeouts
   sample_temperature_range: [0.7, 1.0]  # Vary temperature for diversity
   
   # API settings
-  api_timeout: 60  # seconds
+  api_timeout: 90  # Increased from 60 to 90 seconds for longer generations
   max_retries: 3
-  retry_delay: 2  # seconds
+  retry_delay: 2  # Base delay for exponential backoff (2s, 4s, 8s)
   rate_limit_delay: 0.5  # seconds between requests
   
   # Logits extraction
-  logprobs: 100  # Number of top logits to extract
+  logprobs: 5  # Number of top logits to extract (Together AI max: 5)
   echo: false
 
 # XGBoost Classifier Settings

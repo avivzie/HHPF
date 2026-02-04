@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 def run_full_pipeline(
     domain: str = "math",
     limit: int = None,
+    provider: str = "together",
     skip_inference: bool = False,
     skip_features: bool = False,
     skip_training: bool = False
@@ -31,6 +32,7 @@ def run_full_pipeline(
     Args:
         domain: Domain to process
         limit: Limit number of samples (for testing)
+        provider: API provider ('together' or 'groq')
         skip_inference: Skip inference step (use cached)
         skip_features: Skip feature extraction (use cached)
         skip_training: Skip model training (use existing)
@@ -40,6 +42,7 @@ def run_full_pipeline(
     logger.info("="*60)
     logger.info(f"Domain: {domain}")
     logger.info(f"Sample limit: {limit if limit else 'None'}")
+    logger.info(f"API Provider: {provider}")
     
     # 1. Data Preparation
     logger.info("\n" + "="*60)
@@ -49,7 +52,7 @@ def run_full_pipeline(
     from src.data_preparation.process_datasets import process_dataset
     
     try:
-        processed_df = process_dataset(domain)
+        processed_df = process_dataset(domain, limit=limit)
         dataset_path = f"data/processed/{domain}_processed.csv"
         logger.info(f"✓ Dataset processed: {len(processed_df)} samples")
     except FileNotFoundError as e:
@@ -65,7 +68,7 @@ def run_full_pipeline(
         
         from src.inference.response_generator import ResponseGenerator
         
-        generator = ResponseGenerator(provider="together")
+        generator = ResponseGenerator(provider=provider)
         
         responses_df = generator.generate_for_dataset(
             dataset_path=dataset_path,
@@ -222,6 +225,13 @@ def main():
         help='Limit number of samples (for testing)'
     )
     parser.add_argument(
+        '--provider',
+        type=str,
+        choices=['together', 'groq'],
+        default='together',
+        help='API provider: together (default) or groq'
+    )
+    parser.add_argument(
         '--skip-inference',
         action='store_true',
         help='Skip inference step (use cached responses)'
@@ -243,6 +253,7 @@ def main():
         run_full_pipeline(
             domain=args.domain,
             limit=args.limit,
+            provider=args.provider,
             skip_inference=args.skip_inference,
             skip_features=args.skip_features,
             skip_training=args.skip_training

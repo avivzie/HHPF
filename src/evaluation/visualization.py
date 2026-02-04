@@ -136,7 +136,9 @@ class HHPFVisualizer:
         fig, ax = plt.subplots(figsize=self.fig_size)
         
         # Bar chart of accuracies vs confidences
-        bin_centers = (calib_data['bin_boundaries'][:-1] + calib_data['bin_boundaries'][1:]) / 2
+        import numpy as np
+        bin_boundaries = np.array(calib_data['bin_boundaries'])
+        bin_centers = (bin_boundaries[:-1] + bin_boundaries[1:]) / 2
         bin_width = calib_data['bin_boundaries'][1] - calib_data['bin_boundaries'][0]
         
         # Plot bars for bin accuracies

@@ -4,6 +4,7 @@ Response generation with stochastic sampling for semantic entropy calculation.
 
 import pandas as pd
 import numpy as np
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import logging
@@ -137,14 +138,42 @@ class ResponseGenerator:
         # Ensure output directory exists
         ensure_dir(output_dir)
         
+        # Create progress log file
+        progress_log_path = Path(output_dir) / "progress_log.txt"
+        progress_log_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        def log_progress(message: str):
+            """Log to both console and progress file."""
+            timestamp = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_msg = f"[{timestamp}] {message}"
+            logger.info(log_msg)
+            with open(progress_log_path, "a") as f:
+                f.write(log_msg + "\n")
+                f.flush()  # Force write to disk
+        
+        log_progress(f"Starting response generation for {len(df)} prompts")
+        
         # Generate responses
         results = []
+        start_time = time.time()
         
         for idx, row in tqdm(df.iterrows(), total=len(df), desc="Generating responses"):
             prompt_id = row['prompt_id']
             prompt = row['formatted_prompt']
             ground_truth = row['ground_truth']
             domain = row['domain_key']
+            
+            # Log progress
+            elapsed = time.time() - start_time
+            rate = (idx + 1) / elapsed if elapsed > 0 else 0
+            remaining = (len(df) - idx - 1) / rate if rate > 0 else 0
+            
+            log_progress(
+                f"Processing {prompt_id} ({idx+1}/{len(df)}) | "
+                f"Elapsed: {elapsed/60:.1f}m | "
+                f"Rate: {rate*60:.1f}/min | "
+                f"ETA: {remaining/60:.1f}m"
+            )
             
             # Check if already generated
             cache_path = Path(output_dir) / f"{prompt_id}_responses.pkl"
@@ -193,6 +222,7 @@ class ResponseGenerator:
                 'domain': domain,
                 'prompt': prompt,
                 'ground_truth': ground_truth,
+                'split': row['split'],  # Preserve train/test split
                 'primary_response': primary_response,
                 'num_samples': len(samples),
                 'hallucination_label': label_result['hallucination_label'],
@@ -214,6 +244,14 @@ class ResponseGenerator:
         # Save results
         output_path = Path(output_dir) / f"responses_{Path(dataset_path).stem}.csv"
         results_df.to_csv(output_path, index=False)
+        
+        # Log completion
+        total_time = time.time() - start_time
+        log_progress(f"✓ Generation complete! Total time: {total_time/60:.1f}m")
+        log_progress(f"  Saved responses to {output_path}")
+        log_progress(f"  Total responses: {len(results_df)}")
+        log_progress(f"  Hallucinations: {results_df['hallucination_label'].sum()} "
+                    f"({results_df['hallucination_label'].mean()*100:.1f}%)")
         
         logger.info(f"✓ Saved responses to {output_path}")
         logger.info(f"  Total responses: {len(results_df)}")

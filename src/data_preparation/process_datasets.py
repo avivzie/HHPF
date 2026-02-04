@@ -18,13 +18,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def process_dataset(domain: str, output_dir: str = "data/processed"):
+def process_dataset(domain: str, output_dir: str = "data/processed", limit: int = None):
     """
     Process a single dataset.
     
     Args:
         domain: Domain name (medicine, math, finance, is_agents, psychology)
         output_dir: Output directory for processed data
+        limit: Limit number of samples (applied BEFORE train/test split)
     """
     logger.info(f"Processing {domain} dataset...")
     
@@ -44,6 +45,11 @@ def process_dataset(domain: str, output_dir: str = "data/processed"):
     
     # Preprocess (domain-specific)
     df = loader.preprocess(df)
+    
+    # Apply limit BEFORE train/test split to maintain ratio
+    if limit:
+        df = df.head(limit)
+        logger.info(f"Limited to {limit} samples before splitting")
     
     # Format prompts
     formatter = PromptFormatter(template_style="simple")
