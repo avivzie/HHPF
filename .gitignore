@@ -43,6 +43,9 @@ ENV/
 # macOS
 .DS_Store
 
+# Experiment tracking (keep local for now)
+EXPERIMENT_LOG.md
+
 # Data files (raw datasets - add specific patterns as needed)
 data/raw/*.csv
 data/raw/*.json
