@@ -1,0 +1,71 @@
+# Model configuration for HHPF
+
+# Llama-3 Inference Settings
+llama:
+  # Model selection
+  model_8b: "meta-llama/Llama-3-8b-chat-hf"
+  model_70b: "meta-llama/Llama-3-70b-chat-hf"
+  default_model: "meta-llama/Llama-3-8b-chat-hf"
+  
+  # Generation parameters
+  max_tokens: 1024
+  temperature: 0.8  # For stochastic sampling
+  top_p: 0.95
+  top_k: 50
+  
+  # Stochastic sampling for semantic entropy
+  num_samples: 10
+  sample_temperature_range: [0.7, 1.0]  # Vary temperature for diversity
+  
+  # API settings
+  api_timeout: 60  # seconds
+  max_retries: 3
+  retry_delay: 2  # seconds
+  rate_limit_delay: 0.5  # seconds between requests
+  
+  # Logits extraction
+  logprobs: 100  # Number of top logits to extract
+  echo: false
+
+# XGBoost Classifier Settings
+xgboost:
+  # Initial hyperparameters
+  max_depth: 6
+  learning_rate: 0.05
+  n_estimators: 200
+  min_child_weight: 1
+  subsample: 0.8
+  colsample_bytree: 0.8
+  gamma: 0
+  reg_alpha: 0
+  reg_lambda: 1
+  
+  # Training settings
+  objective: "binary:logistic"
+  eval_metric: ["auc", "logloss"]
+  early_stopping_rounds: 20
+  
+  # Hyperparameter tuning
+  hyperparameter_tuning:
+    enabled: true
+    method: "optuna"  # or "grid_search"
+    n_trials: 100
+    cv_folds: 5
+    search_space:
+      max_depth: [4, 6, 8, 10]
+      learning_rate: [0.01, 0.05, 0.1]
+      n_estimators: [100, 200, 300]
+      min_child_weight: [1, 3, 5]
+      subsample: [0.7, 0.8, 0.9]
+      colsample_bytree: [0.7, 0.8, 0.9]
+  
+  # Class imbalance handling
+  scale_pos_weight: "auto"  # Automatically calculate based on class distribution
+
+# Cache Settings
+cache:
+  enabled: true
+  cache_dir: "./cache"
+  cache_responses: true
+  cache_features: true
+  cache_models: true

@@ -1,0 +1,71 @@
+# Feature extraction configuration for HHPF
+
+# Epistemic Uncertainty Features
+epistemic_uncertainty:
+  semantic_entropy:
+    enabled: true
+    nli_model: "microsoft/deberta-v3-large"
+    entailment_threshold: 0.7  # Threshold for clustering responses
+    batch_size: 8
+    device: "mps"  # Use "mps" for M1 Mac, "cuda" for GPU, "cpu" for CPU
+    
+  semantic_energy:
+    enabled: true
+    method: "negative_log_sum_exp"
+    top_k_logits: 100
+    normalize: true
+
+# Contextual Features
+contextual_features:
+  knowledge_popularity:
+    enabled: true
+    entity_extraction:
+      method: "spacy"
+      model: "en_core_web_sm"
+      entity_types: ["PERSON", "ORG", "GPE", "LOC", "PRODUCT", "EVENT"]
+    
+    frequency_source: "wikipedia"  # Options: "wikipedia", "precomputed"
+    precomputed_file: "data/entity_frequencies.csv"  # If using precomputed
+    
+    rarity_calculation:
+      method: "log_inverse_frequency"
+      smoothing: 1.0  # Add 1 to avoid log(0)
+      aggregation: "mean"  # How to aggregate multiple entities: "mean", "max", "min"
+  
+  prompt_complexity:
+    enabled: true
+    
+    lexical_features:
+      - "token_count"
+      - "unique_token_ratio"
+      - "avg_word_length"
+      - "lexical_diversity"  # Type-Token Ratio
+    
+    syntactic_features:
+      - "avg_parse_depth"
+      - "num_clauses"
+      - "dependency_arc_length"
+    
+    question_type:
+      enabled: true
+      types: ["what", "why", "how", "when", "where", "who", "which"]
+      encode_as_onehot: true
+
+# Domain Features
+domain:
+  enabled: true
+  domains: ["Medicine", "Math", "Finance", "IS", "Psychology"]
+  encoding: "onehot"  # Options: "onehot", "label"
+
+# Feature Aggregation
+aggregation:
+  output_format: "csv"  # Options: "csv", "parquet", "feather"
+  include_metadata: true  # Include prompt_id, domain, etc.
+  normalize_features: false  # XGBoost doesn't require normalization
+  handle_missing: "mean"  # Options: "mean", "median", "drop", "zero"
+
+# Feature Selection (optional)
+feature_selection:
+  enabled: false
+  method: "mutual_info"  # Options: "mutual_info", "chi2", "f_classif"
+  k_best: 15  # Select top k features

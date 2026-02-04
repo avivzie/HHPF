@@ -1,0 +1,41 @@
+# Core ML & Data Science
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+
+# Machine Learning
+xgboost>=2.0.0
+scikit-learn>=1.3.0
+
+# Deep Learning & Transformers
+torch>=2.1.0
+transformers>=4.35.0
+sentence-transformers>=2.2.0
+
+# API Clients for LLM Inference
+together>=1.0.0
+openai>=1.0.0
+requests>=2.31.0
+
+# NLP Processing
+spacy>=3.7.0
+nltk>=3.8.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.17.0
+
+# Utilities
+pyyaml>=6.0
+tqdm>=4.65.0
+python-dotenv>=1.0.0
+jupyter>=1.0.0
+ipykernel>=6.25.0
+
+# Model Evaluation & Experiment Tracking (optional but recommended)
+optuna>=3.3.0  # For hyperparameter tuning
+statsmodels>=0.14.0  # For statistical tests (proportions_ztest)
+
+# Dataset Management
+datasets>=2.14.0  # HuggingFace datasets for downloading Med-HALT and HalluMix
