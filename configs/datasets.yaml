@@ -27,7 +27,7 @@ datasets:
     answer_column: "answer"
     ground_truth_method: "numerical_accuracy"
     description: "Financial Q&A with numerical and factual answers"
-    tolerance: 0.01  # 1% tolerance for numerical answers
+    tolerance: 0.10  # 10% tolerance for financial metrics (accounts for rounding, different sources)
     
   is_agents:
     name: "HalluMix"

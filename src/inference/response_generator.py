@@ -206,6 +206,7 @@ class ResponseGenerator:
                     primary_response,
                     ground_truth,
                     domain,
+                    prompt=prompt,
                     existing_label=existing_label
                 )
             else:
@@ -213,7 +214,8 @@ class ResponseGenerator:
                 label_result = labeler.label_response(
                     primary_response,
                     ground_truth,
-                    domain
+                    domain,
+                    prompt=prompt
                 )
             
             # Collect result

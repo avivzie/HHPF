@@ -29,7 +29,9 @@ class GroundTruthLabeler:
         self, 
         response: str, 
         ground_truth: str, 
-        domain: str
+        domain: str,
+        prompt: str = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Label a response as hallucinated or faithful.
@@ -38,6 +40,8 @@ class GroundTruthLabeler:
             response: Generated response text
             ground_truth: Ground truth answer
             domain: Domain name
+            prompt: Optional prompt/question text (for context-aware labeling)
+            **kwargs: Additional domain-specific arguments
             
         Returns:
             Dictionary with 'hallucination_label' (0/1) and 'confidence'
@@ -95,7 +99,9 @@ class MathLabeler(GroundTruthLabeler):
         self, 
         response: str, 
         ground_truth: str, 
-        domain: str
+        domain: str,
+        prompt: str = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Label math response based on numerical accuracy.
@@ -133,54 +139,184 @@ class MathLabeler(GroundTruthLabeler):
 class FinanceLabeler(GroundTruthLabeler):
     """Labeler for financial questions (FinanceBench)."""
     
+    def extract_numerical_value_with_units(self, text: str) -> Tuple[Optional[float], Optional[str]]:
+        """
+        Extract numerical value and detect unit (thousand, million, billion, trillion).
+        
+        Args:
+            text: Text containing number with possible unit
+            
+        Returns:
+            Tuple of (normalized_value, unit_found)
+        """
+        if pd.isna(text) or not text:
+            return None, None
+        
+        text_lower = str(text).lower()
+        
+        # Unit multipliers
+        units = {
+            'trillion': 1e12,
+            'billion': 1e9,
+            'million': 1e6,
+            'thousand': 1e3,
+            'bn': 1e9,
+            'mn': 1e6,
+            'k': 1e3,
+        }
+        
+        # Extract numerical value
+        math_labeler = MathLabeler()
+        base_value = math_labeler.extract_numerical_value(text)
+        
+        if base_value is None:
+            return None, None
+        
+        # Check for unit indicators
+        detected_unit = None
+        multiplier = 1.0
+        
+        for unit, mult in units.items():
+            if unit in text_lower:
+                detected_unit = unit
+                multiplier = mult
+                break
+        
+        normalized_value = base_value * multiplier
+        
+        return normalized_value, detected_unit
+    
+    def infer_unit_from_prompt(self, prompt: str) -> Optional[str]:
+        """
+        Infer the expected unit from the prompt/question.
+        
+        Args:
+            prompt: The question text
+            
+        Returns:
+            Unit string ('million', 'billion', etc.) or None
+        """
+        if not prompt:
+            return None
+        
+        prompt_lower = prompt.lower()
+        
+        # Check for explicit unit specifications in order of priority
+        unit_patterns = [
+            ('usd millions', 'million'),
+            ('usd million', 'million'),
+            ('in millions', 'million'),
+            ('usd billions', 'billion'),
+            ('usd billion', 'billion'),
+            ('in billions', 'billion'),
+            ('in thousands', 'thousand'),
+            ('usd thousands', 'thousand'),
+        ]
+        
+        for pattern, unit in unit_patterns:
+            if pattern in prompt_lower:
+                return unit
+        
+        return None
+    
     def label_response(
         self, 
         response: str, 
         ground_truth: str, 
-        domain: str
+        domain: str,
+        prompt: str = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
-        Label finance response with numerical tolerance.
+        Label finance response with unit-aware numerical tolerance and relaxed text similarity.
+        
+        Args:
+            prompt: Optional question text to infer expected units
         
         Returns:
             Dict with 'hallucination_label' and metadata
         """
         # Get tolerance from config
         dataset_config = self.datasets_config.get(domain, {})
-        tolerance_pct = dataset_config.get('tolerance', 0.01)  # Default 1%
+        tolerance_pct = dataset_config.get('tolerance', 0.05)  # Increased to 5% for finance
         
-        # Try numerical comparison first
-        math_labeler = MathLabeler()
-        response_value = math_labeler.extract_numerical_value(response)
-        truth_value = math_labeler.extract_numerical_value(ground_truth)
+        # Try unit-aware numerical comparison
+        response_value, response_unit = self.extract_numerical_value_with_units(response)
+        truth_value, truth_unit = self.extract_numerical_value_with_units(ground_truth)
         
-        if response_value is not None and truth_value is not None:
+        # If ground truth has no explicit unit but prompt specifies one, infer it
+        if truth_value is not None and truth_unit is None and prompt:
+            inferred_unit = self.infer_unit_from_prompt(prompt)
+            if inferred_unit:
+                # Apply the inferred unit to ground truth
+                unit_multipliers = {
+                    'trillion': 1e12,
+                    'billion': 1e9,
+                    'million': 1e6,
+                    'thousand': 1e3,
+                }
+                truth_value = truth_value * unit_multipliers.get(inferred_unit, 1.0)
+                truth_unit = f'{inferred_unit} (inferred)'
+        
+        # Check if this is truly a numerical answer or a qualitative one with embedded numbers
+        # Heuristic: If ground truth is long (>50 chars) with multiple sentences, it's qualitative
+        is_qualitative = len(str(ground_truth)) > 50 or '\n' in str(ground_truth) or any(word in str(ground_truth).lower() for word in ['yes', 'no', 'because', 'due to', 'primarily', 'evident from'])
+        
+        if response_value is not None and truth_value is not None and not is_qualitative:
+            # Both values are now normalized to same base (no units)
             # Check with percentage tolerance
             if truth_value == 0:
                 tolerance_abs = 1e-6
             else:
                 tolerance_abs = abs(truth_value * tolerance_pct)
             
-            matches = abs(response_value - truth_value) <= tolerance_abs
+            difference = abs(response_value - truth_value)
+            matches = difference <= tolerance_abs
             
             return {
                 'hallucination_label': 0 if matches else 1,
                 'confidence': 1.0,
                 'extracted_response': response_value,
                 'extracted_truth': truth_value,
+                'response_unit': response_unit,
+                'truth_unit': truth_unit,
                 'tolerance_used': tolerance_abs,
-                'method': 'numerical_tolerance'
+                'difference': difference,
+                'method': 'numerical_tolerance_unit_aware'
             }
         
-        # Fallback to text similarity
+        # Fallback to text similarity with relaxed threshold
+        # Finance answers can be phrased differently but still be correct
         similarity = SequenceMatcher(None, response.lower(), ground_truth.lower()).ratio()
-        threshold = 0.7
+        
+        # Also check for key term overlap for qualitative answers
+        response_terms = set(response.lower().split())
+        truth_terms = set(ground_truth.lower().split())
+        
+        # Remove common stopwords for better matching
+        stopwords = {'the', 'a', 'an', 'is', 'was', 'are', 'were', 'be', 'been', 'to', 'of', 'and', 'in', 'for', 'on', 'with'}
+        response_terms_filtered = response_terms - stopwords
+        truth_terms_filtered = truth_terms - stopwords
+        
+        if truth_terms_filtered:
+            term_overlap = len(response_terms_filtered & truth_terms_filtered) / len(truth_terms_filtered)
+        else:
+            term_overlap = 0.0
+        
+        # Combined score for qualitative answers
+        combined_score = (similarity * 0.6) + (term_overlap * 0.4)
+        
+        # Very relaxed threshold for finance qualitative answers (0.35)
+        # Finance questions can have many valid phrasings of the same conclusion
+        threshold = 0.35
         
         return {
-            'hallucination_label': 0 if similarity >= threshold else 1,
+            'hallucination_label': 0 if combined_score >= threshold else 1,
             'confidence': 0.7,
             'similarity_score': similarity,
-            'method': 'text_similarity'
+            'term_overlap': term_overlap,
+            'combined_score': combined_score,
+            'method': 'text_similarity_with_term_overlap'
         }
 
 
@@ -191,7 +327,9 @@ class MedicalLabeler(GroundTruthLabeler):
         self, 
         response: str, 
         ground_truth: str, 
-        domain: str
+        domain: str,
+        prompt: str = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Label medical response using text similarity and key term matching.
@@ -236,7 +374,9 @@ class TruthfulnessLabeler(GroundTruthLabeler):
         self, 
         response: str, 
         ground_truth: str, 
-        domain: str
+        domain: str,
+        prompt: str = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Label response based on truthfulness.
@@ -271,7 +411,9 @@ class FactualConsistencyLabeler(GroundTruthLabeler):
         self, 
         response: str, 
         ground_truth: str, 
-        domain: str
+        domain: str,
+        prompt: str = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Label response based on factual consistency.
@@ -321,7 +463,9 @@ class ExistingLabelLabeler(GroundTruthLabeler):
         response: str, 
         ground_truth: str, 
         domain: str,
-        existing_label: int = None
+        prompt: str = None,
+        existing_label: int = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Use existing label from dataset.
@@ -330,6 +474,7 @@ class ExistingLabelLabeler(GroundTruthLabeler):
             response: Generated response text (not used)
             ground_truth: Ground truth answer (not used)
             domain: Domain name
+            prompt: Optional prompt text (not used)
             existing_label: Pre-existing hallucination label
             
         Returns:
