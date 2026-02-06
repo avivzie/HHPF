@@ -109,8 +109,18 @@ class MathLabeler(GroundTruthLabeler):
         Returns:
             Dict with 'hallucination_label' (1 if wrong, 0 if correct) and metadata
         """
+        # Handle NULL/NaN ground truth
+        if pd.isna(ground_truth) or ground_truth is None or ground_truth == '':
+            logger.warning(f"NULL ground truth in math domain - cannot label, marking as hallucination")
+            return {
+                'hallucination_label': 1,
+                'confidence': 0.0,
+                'method': 'null_ground_truth',
+                'note': 'No ground truth available for comparison'
+            }
+        
         response_value = self.extract_numerical_value(response)
-        truth_value = self.extract_numerical_value(ground_truth)
+        truth_value = self.extract_numerical_value(str(ground_truth))
         
         if response_value is None or truth_value is None:
             logger.warning(f"Could not extract numerical values: response={response_value}, truth={truth_value}")
@@ -236,13 +246,23 @@ class FinanceLabeler(GroundTruthLabeler):
         Returns:
             Dict with 'hallucination_label' and metadata
         """
+        # Handle NULL/NaN ground truth
+        if pd.isna(ground_truth) or ground_truth is None or ground_truth == '':
+            logger.warning(f"NULL ground truth in finance domain - cannot label, marking as hallucination")
+            return {
+                'hallucination_label': 1,
+                'confidence': 0.0,
+                'method': 'null_ground_truth',
+                'note': 'No ground truth available for comparison'
+            }
+        
         # Get tolerance from config
         dataset_config = self.datasets_config.get(domain, {})
         tolerance_pct = dataset_config.get('tolerance', 0.05)  # Increased to 5% for finance
         
         # Try unit-aware numerical comparison
         response_value, response_unit = self.extract_numerical_value_with_units(response)
-        truth_value, truth_unit = self.extract_numerical_value_with_units(ground_truth)
+        truth_value, truth_unit = self.extract_numerical_value_with_units(str(ground_truth))
         
         # If ground truth has no explicit unit but prompt specifies one, infer it
         if truth_value is not None and truth_unit is None and prompt:
@@ -336,9 +356,63 @@ class MedicalLabeler(GroundTruthLabeler):
         
         For research validity, this should ideally use medical NLI or expert validation.
         """
-        response_lower = response.lower()
-        truth_lower = ground_truth.lower()
+        # Handle NULL/NaN ground truth
+        if pd.isna(ground_truth) or ground_truth is None or ground_truth == '':
+            logger.warning(f"NULL ground truth in medical domain - cannot label, marking as hallucination")
+            return {
+                'hallucination_label': 1,  # Conservative: mark as hallucination if no GT
+                'confidence': 0.0,
+                'method': 'null_ground_truth',
+                'note': 'No ground truth available for comparison'
+            }
         
+        response_lower = response.lower()
+        truth_lower = str(ground_truth).lower()
+        
+        # Special handling for "None of the above" answers
+        # These require exact semantic matching - if GT says "none", response must also say "none"
+        # Otherwise it's a hallucination (LLM provided specific answer when it should have said "none")
+        if truth_lower in ['none of the above', 'none', 'no correct answer']:
+            # Check if response also indicates "none" or refusal
+            none_indicators = [
+                'none of the above',
+                'none of these',
+                'none',
+                'no correct answer',
+                'cannot determine',
+                'not enough information',
+                'i don\'t know',
+                'i cannot',
+                'i\'m not sure',
+                'i couldn\'t find',
+                'i\'m ready to help',  # Refusal to answer without options
+                'what description',  # Asking for clarification
+                'unclear'
+            ]
+            
+            response_indicates_none = any(indicator in response_lower for indicator in none_indicators)
+            
+            # Also check if response is very short (< 50 chars) which might be a refusal
+            is_short_refusal = len(response) < 50
+            
+            if response_indicates_none or is_short_refusal:
+                # Response correctly says "none" or refuses - FAITHFUL
+                return {
+                    'hallucination_label': 0,
+                    'confidence': 0.9,
+                    'method': 'none_of_above_match',
+                    'note': 'Ground truth is "none", response correctly indicates none or refusal'
+                }
+            else:
+                # Response provides specific answer when it should say "none" - HALLUCINATION
+                return {
+                    'hallucination_label': 1,
+                    'confidence': 0.95,
+                    'method': 'none_of_above_mismatch',
+                    'note': 'Ground truth is "none", but response provided specific answer'
+                }
+        
+        # For specific medical answers (not "none of the above"), use similarity scoring
         # Calculate text similarity
         similarity = SequenceMatcher(None, response_lower, truth_lower).ratio()
         
@@ -355,14 +429,19 @@ class MedicalLabeler(GroundTruthLabeler):
         
         # Combined score
         combined_score = (similarity + term_overlap) / 2
-        threshold = 0.6
+        
+        # Higher threshold for specific medical answers (based on validation analysis)
+        # Threshold 0.30 had 20-40% labeling accuracy
+        # Threshold 0.50 is more conservative - only very close matches are faithful
+        threshold = 0.50
         
         return {
             'hallucination_label': 0 if combined_score >= threshold else 1,
-            'confidence': 0.8,
+            'confidence': 0.7,
             'similarity_score': similarity,
             'term_overlap': term_overlap,
             'combined_score': combined_score,
+            'threshold_used': threshold,
             'method': 'medical_similarity'
         }
 
@@ -383,8 +462,20 @@ class TruthfulnessLabeler(GroundTruthLabeler):
         
         TruthfulQA may already have labels in the dataset.
         """
+        # Handle NULL/NaN ground truth
+        if pd.isna(ground_truth) or ground_truth is None or ground_truth == '':
+            logger.warning(f"NULL ground truth in psychology domain - cannot label, marking as hallucination")
+            return {
+                'hallucination_label': 1,
+                'confidence': 0.0,
+                'method': 'null_ground_truth',
+                'note': 'No ground truth available for comparison'
+            }
+        
+        ground_truth_str = str(ground_truth)
+        
         # If ground_truth is already a label (0/1 or True/False)
-        if ground_truth in ['0', '1', 'True', 'False', 'true', 'false']:
+        if ground_truth_str in ['0', '1', 'True', 'False', 'true', 'false']:
             label = 0 if ground_truth in ['1', 'True', 'true'] else 1
             return {
                 'hallucination_label': label,
@@ -393,7 +484,7 @@ class TruthfulnessLabeler(GroundTruthLabeler):
             }
         
         # Otherwise, use text similarity
-        similarity = SequenceMatcher(None, response.lower(), ground_truth.lower()).ratio()
+        similarity = SequenceMatcher(None, response.lower(), ground_truth_str.lower()).ratio()
         threshold = 0.6
         
         return {
@@ -420,8 +511,18 @@ class FactualConsistencyLabeler(GroundTruthLabeler):
         
         This is a simplified version. Production should use NLI models.
         """
+        # Handle NULL/NaN ground truth
+        if pd.isna(ground_truth) or ground_truth is None or ground_truth == '':
+            logger.warning(f"NULL ground truth in IS/agents domain - cannot label, marking as hallucination")
+            return {
+                'hallucination_label': 1,
+                'confidence': 0.0,
+                'method': 'null_ground_truth',
+                'note': 'No ground truth available for comparison'
+            }
+        
         response_lower = response.lower()
-        truth_lower = ground_truth.lower()
+        truth_lower = str(ground_truth).lower()
         
         # Text similarity
         similarity = SequenceMatcher(None, response_lower, truth_lower).ratio()

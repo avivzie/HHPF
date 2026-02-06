@@ -161,7 +161,15 @@ class MedicineLoader(DatasetLoader):
     
     def preprocess(self, df: pd.DataFrame) -> pd.DataFrame:
         """Preprocess Med-HALT dataset."""
-        # Add any Med-HALT specific preprocessing
+        # Filter out samples with NULL ground truth
+        # Med-HALT has ~1,860 samples with missing ground truth
+        initial_count = len(df)
+        df = df[df['ground_truth'].notna() & (df['ground_truth'] != '')]
+        filtered_count = initial_count - len(df)
+        
+        if filtered_count > 0:
+            logger.info(f"Filtered out {filtered_count} samples with NULL ground truth ({filtered_count/initial_count*100:.1f}%)")
+        
         return df
 
 
