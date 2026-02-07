@@ -9,14 +9,14 @@
 ## Quick Navigation
 
 ### 📋 **Start Here**
-- **[START_HERE.md](START_HERE.md)** - Project overview and getting started guide
+- **[START_HERE.md](../START_HERE.md)** - Project overview and getting started guide
 - **[PROJECT_STATUS.md](PROJECT_STATUS.md)** - Current status and latest updates
-- **[README.md](README.md)** - Repository README
+- **[README.md](../README.md)** - Repository README
 
 ### 🎯 **Research**
-- **[RESEARCH_QUESTIONS.md](RESEARCH_QUESTIONS.md)** - Research questions and hypotheses
+- **[RESEARCH_QUESTIONS.md](../RESEARCH_QUESTIONS.md)** - Research questions and hypotheses
 - **[EXPERIMENT_LOG.md](EXPERIMENT_LOG.md)** - Complete run history (RUN-001 through RUN-016)
-- **[outputs/research_questions/](outputs/research_questions/)** - ✨ **NEW:** RQ1, RQ2, RQ3 analysis outputs
+- **[outputs/research_questions/](../outputs/research_questions/)** - ✨ **NEW:** RQ1, RQ2, RQ3 analysis outputs
 - **[RESEARCH_ACTION_PLAN.md](RESEARCH_ACTION_PLAN.md)** - ✨ **NEW:** Plan to complete full research
 
 ---
@@ -28,11 +28,11 @@
 **Status:** Production-ready | AUROC: 0.7918 | Samples: 542
 
 **Key Documents:**
-- **[outputs/results/domain1_math_summary.md](outputs/results/domain1_math_summary.md)** - Complete results
+- **[outputs/results/domain1_math_summary.md](../outputs/results/domain1_math_summary.md)** - Complete results
 - **[SEMANTIC_ENTROPY_FIX_SUMMARY.md](SEMANTIC_ENTROPY_FIX_SUMMARY.md)** - Critical bug fix details
-- **[outputs/figures/math/](outputs/figures/math/)** - All visualizations (5 sets)
+- **[outputs/figures/math/](../outputs/figures/math/)** - All visualizations (5 sets)
 
-**Metrics:** [outputs/results/metrics_math.json](outputs/results/metrics_math.json)
+**Metrics:** [outputs/results/metrics_math.json](../outputs/results/metrics_math.json)
 
 **Key Achievement:** Fixed semantic entropy NULL values (500/500 → 0/542), improved AUROC from 0.50 to 0.79
 
@@ -43,13 +43,12 @@
 **Status:** Production-ready | AUROC: 0.6827 | Samples: 150
 
 **Key Documents:**
-- **[FINANCE_DOMAIN_COMPLETE.md](FINANCE_DOMAIN_COMPLETE.md)** - Comprehensive documentation ⭐
 - **[FINANCE_LABELING_FIX.md](FINANCE_LABELING_FIX.md)** - Labeling bug fix details
-- **[outputs/results/domain2_finance_summary.md](outputs/results/domain2_finance_summary.md)** - Results analysis
-- **[outputs/figures/finance/](outputs/figures/finance/)** - All visualizations (5 sets)
-- **[outputs/figures/finance/README.md](outputs/figures/finance/README.md)** - Visualization guide
+- **[outputs/results/domain2_finance_summary.md](../outputs/results/domain2_finance_summary.md)** - Results analysis
+- **[outputs/figures/finance/](../outputs/figures/finance/)** - All visualizations (5 sets)
+- **[outputs/figures/finance/README.md](../outputs/figures/finance/README.md)** - Visualization guide
 
-**Metrics:** [outputs/results/metrics_finance.json](outputs/results/metrics_finance.json)
+**Metrics:** [outputs/results/metrics_finance.json](../outputs/results/metrics_finance.json)
 
 **Key Achievement:** Fixed unit normalization bug (100% → 86% hallucination rate), validated verification process
 
@@ -62,9 +61,9 @@
 **Key Documents:**
 - **[MEDICINE_DOMAIN_FIX.md](MEDICINE_DOMAIN_FIX.md)** - Consolidated fix documentation ⭐
 - **[MEDICINE_DOMAIN_RESULTS.md](MEDICINE_DOMAIN_RESULTS.md)** - ✨ **NEW:** Final results and interpretation
-- **[outputs/figures/medicine/](outputs/figures/medicine/)** - All visualizations (5 sets)
+- **[outputs/figures/medicine/](../outputs/figures/medicine/)** - All visualizations (5 sets)
 
-**Metrics:** [outputs/results/metrics_medicine.json](outputs/results/metrics_medicine.json)
+**Metrics:** [outputs/results/metrics_medicine.json](../outputs/results/metrics_medicine.json)
 
 **Key Challenges Resolved:**
 - NULL ground truth handling (1,860 samples filtered)
@@ -82,9 +81,9 @@
 
 **Key Documents:**
 - **[PSYCHOLOGY_LABELING_FIX.md](PSYCHOLOGY_LABELING_FIX.md)** - Semantic similarity implementation ⭐
-- **[outputs/figures/psychology/](outputs/figures/psychology/)** - All visualizations (5 sets)
+- **[outputs/figures/psychology/](../outputs/figures/psychology/)** - All visualizations (5 sets)
 
-**Metrics:** [outputs/results/metrics_psychology.json](outputs/results/metrics_psychology.json)
+**Metrics:** [outputs/results/metrics_psychology.json](../outputs/results/metrics_psychology.json)
 
 **Key Innovation:**
 - **Problem:** Text similarity completely fails (2-3% scores even for correct answers)
@@ -100,9 +99,9 @@
 
 **Status:** Dataset ready (37,727 rows) | Code ready | Awaiting user run
 
-**Dataset:** `data/raw/hallumix.csv`  
+**Dataset:** `../data/raw/hallumix.csv`  
 **Has Labels:** Yes (pre-existing `hallucination_label` column)  
-**Fix Applied:** `existing_label` handling in `process_datasets.py` and `label_responses.py`
+**Fix Applied:** `existing_label` handling in `src/data_preparation/process_datasets.py` and `src/data_preparation/label_responses.py`
 
 **Status:** Ready for 100-sample test, then 500-sample run
 
@@ -129,8 +128,8 @@
 - **Naive Baseline:** 0.5000 (random - logprobs unavailable)
 
 **Files:**
-- [rq1_ablation_study.csv](outputs/research_questions/rq1_ablation_study.csv)
-- [figures/rq1_ablation_comparison.png|pdf](outputs/research_questions/figures/)
+- [rq1_ablation_study.csv](../outputs/research_questions/rq1_ablation_study.csv)
+- [figures/rq1_ablation_comparison.png|pdf](../outputs/research_questions/figures/)
 
 ---
 
@@ -147,8 +146,8 @@
 - **Interpretation:** Semantic entropy works **without logprobs**, making it practical for any API
 
 **Files:**
-- [rq2_semantic_vs_naive.csv](outputs/research_questions/rq2_semantic_vs_naive.csv)
-- [figures/rq2_semantic_vs_naive.png|pdf](outputs/research_questions/figures/)
+- [rq2_semantic_vs_naive.csv](../outputs/research_questions/rq2_semantic_vs_naive.csv)
+- [figures/rq2_semantic_vs_naive.png|pdf](../outputs/research_questions/figures/)
 
 ---
 
@@ -170,11 +169,11 @@
 - **Top varying features:** entity_type_EVENT, qtype_why, num_rare_entities, avg_cluster_size
 
 **Files:**
-- [rq3_domain_metrics.csv](outputs/research_questions/rq3_domain_metrics.csv)
-- [rq3_feature_importance_differences.csv](outputs/research_questions/rq3_feature_importance_differences.csv)
-- [figures/rq3_domain_auroc.png|pdf](outputs/research_questions/figures/)
-- [figures/rq3_domain_feature_heatmap.png|pdf](outputs/research_questions/figures/)
-- [domain_models/](outputs/research_questions/domain_models/) - 4 domain-specific XGBoost models
+- [rq3_domain_metrics.csv](../outputs/research_questions/rq3_domain_metrics.csv)
+- [rq3_feature_importance_differences.csv](../outputs/research_questions/rq3_feature_importance_differences.csv)
+- [figures/rq3_domain_auroc.png|pdf](../outputs/research_questions/figures/)
+- [figures/rq3_domain_feature_heatmap.png|pdf](../outputs/research_questions/figures/)
+- [domain_models/](../outputs/research_questions/domain_models/) - 4 domain-specific XGBoost models
 
 ---
 
@@ -220,22 +219,21 @@
 
 ### Process Documentation
 
-- **[VERIFICATION_PLAN.md](VERIFICATION_PLAN.md)** - Systematic domain verification process
-- **[COMMIT_STRATEGY.md](COMMIT_STRATEGY.md)** - Git commit strategy and guidelines
+(Historical documents - may not exist in current version)
 
 ---
 
 ## Configuration Files
 
 ### Data Configuration
-- **[configs/datasets.yaml](configs/datasets.yaml)** - Dataset paths and parameters
-- **[configs/features.yaml](configs/features.yaml)** - Feature extraction settings
-- **[configs/model.yaml](configs/model.yaml)** - Model hyperparameters
+- **[configs/datasets.yaml](../configs/datasets.yaml)** - Dataset paths and parameters
+- **[configs/features.yaml](../configs/features.yaml)** - Feature extraction settings
+- **[configs/model.yaml](../configs/model.yaml)** - Model hyperparameters
 
 ### Project Setup
-- **[requirements.txt](requirements.txt)** - Python dependencies
-- **[setup.py](setup.py)** - Package installation
-- **[.env.example](.env.example)** - Environment variables template
+- **[requirements.txt](../requirements.txt)** - Python dependencies
+- **[setup.py](../setup.py)** - Package installation
+- **[.env.example](../.env.example)** - Environment variables template
 
 ---
 
@@ -244,31 +242,31 @@
 ### Pipeline Modules
 
 **Data Preparation:**
-- `src/data_preparation/dataset_loaders.py` - Load domain datasets
-- `src/data_preparation/process_datasets.py` - Process and split data
-- `src/data_preparation/ground_truth.py` - Domain-specific labelers ⭐
-- `src/data_preparation/prompt_formatter.py` - Format prompts for LLMs
+- `../src/data_preparation/dataset_loaders.py` - Load domain datasets
+- `../src/data_preparation/process_datasets.py` - Process and split data
+- `../src/data_preparation/ground_truth.py` - Domain-specific labelers ⭐
+- `../src/data_preparation/prompt_formatter.py` - Format prompts for LLMs
 
 **Inference:**
-- `src/inference/llama_client.py` - LLM API clients (Groq, Together)
-- `src/inference/response_generator.py` - Generate stochastic samples
+- `../src/inference/llama_client.py` - LLM API clients (Groq, Together)
+- `../src/inference/response_generator.py` - Generate stochastic samples
 
 **Features:**
-- `src/features/epistemic_uncertainty.py` - Semantic entropy/energy ⭐
-- `src/features/contextual_features.py` - NER, question types, linguistic
-- `src/features/feature_aggregator.py` - Orchestrate feature extraction ⭐
+- `../src/features/epistemic_uncertainty.py` - Semantic entropy/energy ⭐
+- `../src/features/contextual_features.py` - NER, question types, linguistic
+- `../src/features/feature_aggregator.py` - Orchestrate feature extraction ⭐
 
 **Classification:**
-- `src/classifier/xgboost_model.py` - XGBoost classifier
-- `src/classifier/hyperparameter_tuning.py` - HPO with Optuna
+- `../src/classifier/xgboost_model.py` - XGBoost classifier
+- `../src/classifier/hyperparameter_tuning.py` - HPO with Optuna
 
 **Evaluation:**
-- `src/evaluation/metrics.py` - AUROC, ARC, ECE, calibration
-- `src/evaluation/visualization.py` - Generate plots
-- `src/evaluation/hypothesis_testing.py` - Statistical tests
+- `../src/evaluation/metrics.py` - AUROC, ARC, ECE, calibration
+- `../src/evaluation/visualization.py` - Generate plots
+- `../src/evaluation/hypothesis_testing.py` - Statistical tests
 
 **Pipeline:**
-- `run_pipeline.py` - End-to-end pipeline orchestration ⭐
+- `../run_pipeline.py` - End-to-end pipeline orchestration ⭐
 
 ---
 
@@ -513,9 +511,9 @@ notebooks/
 **Year:** 2026
 
 **For Questions:**
-- See [START_HERE.md](START_HERE.md) for setup instructions
+- See [START_HERE.md](../START_HERE.md) for setup instructions
 - Check [EXPERIMENT_LOG.md](EXPERIMENT_LOG.md) for run history
-- Review [VERIFICATION_PLAN.md](VERIFICATION_PLAN.md) for process
+- Check [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) for comprehensive documentation index
 
 ---
 
