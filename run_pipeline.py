@@ -44,67 +44,69 @@ def run_full_pipeline(
     logger.info(f"Sample limit: {limit if limit else 'None'}")
     logger.info(f"API Provider: {provider}")
     
-    # 1. Data Preparation (NO TRAIN/TEST SPLIT YET)
-    logger.info("\n" + "="*60)
-    logger.info("STEP 1: Data Preparation (without split)")
-    logger.info("="*60)
+    features_path = f"data/features/{domain}_features.csv"
     
-    from src.data_preparation.process_datasets import process_dataset
-    
-    try:
-        # Note: This now loads and formats data WITHOUT creating train/test split
-        # The split will happen AFTER labeling in step 3
-        processed_df = process_dataset(domain, limit=limit)
-        dataset_path = f"data/processed/{domain}_processed.csv"
-        logger.info(f"✓ Dataset processed: {len(processed_df)} samples (no split yet)")
-    except FileNotFoundError as e:
-        logger.error(f"Dataset not found: {e}")
-        logger.error(f"Please place your dataset in data/raw/")
-        sys.exit(1)
-    
-    # 2. Inference (Response Generation)
-    if not skip_inference:
+    # When skip_features is set, features CSV already contains labels and splits,
+    # so we can skip steps 1-4 entirely (avoids loading heavy ML models).
+    if not skip_features:
+        # 1. Data Preparation (NO TRAIN/TEST SPLIT YET)
         logger.info("\n" + "="*60)
-        logger.info("STEP 2: Response Generation")
+        logger.info("STEP 1: Data Preparation (without split)")
         logger.info("="*60)
         
-        from src.inference.response_generator import ResponseGenerator
+        from src.data_preparation.process_datasets import process_dataset
         
-        generator = ResponseGenerator(provider=provider)
+        try:
+            processed_df = process_dataset(domain, limit=limit)
+            dataset_path = f"data/processed/{domain}_processed.csv"
+            logger.info(f"✓ Dataset processed: {len(processed_df)} samples (no split yet)")
+        except FileNotFoundError as e:
+            logger.error(f"Dataset not found: {e}")
+            logger.error(f"Please place your dataset in data/raw/")
+            sys.exit(1)
         
-        responses_df = generator.generate_for_dataset(
-            dataset_path=dataset_path,
-            output_dir="data/features",
-            limit=limit
+        # 2. Inference (Response Generation)
+        if not skip_inference:
+            logger.info("\n" + "="*60)
+            logger.info("STEP 2: Response Generation")
+            logger.info("="*60)
+            
+            from src.inference.response_generator import ResponseGenerator
+            
+            generator = ResponseGenerator(provider=provider)
+            
+            responses_df = generator.generate_for_dataset(
+                dataset_path=dataset_path,
+                output_dir="data/features",
+                limit=limit
+            )
+            
+            logger.info(f"✓ Responses generated: {len(responses_df)} samples")
+        else:
+            logger.info("⊳ Skipping inference (using cached responses)")
+        
+        # 3. Label Responses & Create Stratified Split
+        logger.info("\n" + "="*60)
+        logger.info("STEP 3: Label Responses & Stratified Split")
+        logger.info("="*60)
+        logger.info("📝 Labeling all responses before splitting (enables proper stratification)")
+        
+        from src.data_preparation.label_responses import label_all_responses, save_labeled_responses
+        
+        labeled_df = label_all_responses(
+            processed_csv=dataset_path,
+            responses_dir="data/features",
+            domain=domain,
+            train_ratio=0.8,
+            random_seed=42
         )
         
-        logger.info(f"✓ Responses generated: {len(responses_df)} samples")
-    else:
-        logger.info("⊳ Skipping inference (using cached responses)")
-    
-    # 3. Label Responses & Create Stratified Split
-    logger.info("\n" + "="*60)
-    logger.info("STEP 3: Label Responses & Stratified Split")
-    logger.info("="*60)
-    logger.info("📝 Labeling all responses before splitting (enables proper stratification)")
-    
-    from src.data_preparation.label_responses import label_all_responses, save_labeled_responses
-    
-    labeled_df = label_all_responses(
-        processed_csv=dataset_path,
-        responses_dir="data/features",
-        domain=domain,
-        train_ratio=0.8,
-        random_seed=42
-    )
-    
-    # Save labeled responses with stratified split
-    responses_path = f"data/features/responses_{domain}_processed.csv"
-    save_labeled_responses(labeled_df, responses_path)
-    logger.info(f"✓ Labeled responses with stratified split: {len(labeled_df)} samples")
-    
-    # 4. Feature Extraction
-    if not skip_features:
+        # Save labeled responses with stratified split
+        responses_path = f"data/features/responses_{domain}_processed.csv"
+        save_labeled_responses(labeled_df, responses_path)
+        logger.info(f"✓ Labeled responses with stratified split: {len(labeled_df)} samples")
+        
+        # 4. Feature Extraction
         logger.info("\n" + "="*60)
         logger.info("STEP 4: Feature Extraction")
         logger.info("="*60)
@@ -113,16 +115,24 @@ def run_full_pipeline(
         
         aggregator = FeatureAggregator()
         
+        # Detect MCQ format for medicine domain (has correct_index column)
+        format_type = "free_text"
+        if domain == "medicine":
+            import pandas as pd
+            _processed_df = pd.read_csv(dataset_path)
+            if 'correct_index' in _processed_df.columns:
+                format_type = "mcq"
+                logger.info("Detected MCQ format for medicine domain - using MCQ-specific features")
+        
         features_df = aggregator.aggregate_features(
             responses_csv=responses_path,
-            output_path=f"data/features/{domain}_features.csv"
+            output_path=features_path,
+            format_type=format_type
         )
         
-        features_path = f"data/features/{domain}_features.csv"
         logger.info(f"✓ Features extracted: {features_df.shape[1]} features")
     else:
-        features_path = f"data/features/{domain}_features.csv"
-        logger.info("⊳ Skipping feature extraction (using cached features)")
+        logger.info("⊳ Skipping steps 1-4 (using cached features from %s)", features_path)
     
     # 5. Model Training
     if not skip_training:
@@ -131,12 +141,24 @@ def run_full_pipeline(
         logger.info("="*60)
         
         from src.classifier.xgboost_model import HallucinationClassifier
+        from src.classifier.hyperparameter_tuning import HyperparameterTuner
         import pandas as pd
         
         features_df = pd.read_csv(features_path)
         
         classifier = HallucinationClassifier()
         X_train, X_test, y_train, y_test = classifier.prepare_data(features_df)
+        
+        # Hyperparameter tuning (if enabled in config)
+        tuner = HyperparameterTuner()
+        if tuner.tuning_config.get('enabled', False):
+            logger.info("Hyperparameter tuning enabled - running Optuna...")
+            best_params = tuner.tune(X_train, y_train)
+            # Update classifier config with best params
+            classifier.config.update(best_params)
+            logger.info("Using tuned hyperparameters for training")
+        else:
+            logger.info("Hyperparameter tuning disabled - using default config")
         
         classifier.train(X_train, y_train)
         
@@ -172,6 +194,18 @@ def run_full_pipeline(
     # Predictions
     y_pred_test = classifier.predict(X_test)
     y_proba_test = classifier.predict_proba(X_test)
+    
+    # For psychology domain with low recall, analyze different thresholds
+    if domain == 'psychology':
+        logger.info("\n" + "="*60)
+        logger.info("Psychology Domain: Analyzing Decision Thresholds")
+        logger.info("="*60)
+        threshold_results = classifier.evaluate_thresholds(X_test, y_test)
+        
+        # Save threshold analysis
+        threshold_path = f"outputs/results/threshold_analysis_{domain}.csv"
+        threshold_results.to_csv(threshold_path, index=False)
+        logger.info(f"✓ Threshold analysis saved to {threshold_path}")
     
     # Calculate metrics
     calculator = MetricsCalculator()
