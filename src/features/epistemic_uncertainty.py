@@ -281,7 +281,7 @@ class NaiveConfidenceCalculator:
         """
         token_logprobs = self._extract_token_logprobs(logprobs)
         
-        if not token_logprobs or len(token_logprobs) == 0:
+        if token_logprobs is None or len(token_logprobs) == 0:
             return None
         
         # Max probability = exp(max logprob)
@@ -305,7 +305,7 @@ class NaiveConfidenceCalculator:
         """
         token_logprobs = self._extract_token_logprobs(logprobs)
         
-        if not token_logprobs or len(token_logprobs) == 0:
+        if token_logprobs is None or len(token_logprobs) == 0:
             return None
         
         # Perplexity = exp(-mean(logprobs))
@@ -327,7 +327,7 @@ class NaiveConfidenceCalculator:
         """
         token_logprobs = self._extract_token_logprobs(logprobs)
         
-        if not token_logprobs or len(token_logprobs) == 0:
+        if token_logprobs is None or len(token_logprobs) == 0:
             return None
         
         # Average entropy across all positions
@@ -341,9 +341,10 @@ class NaiveConfidenceCalculator:
     
     def _extract_token_logprobs(self, logprobs: Dict) -> np.ndarray:
         """Extract token logprobs from API response."""
-        if not logprobs:
+        if logprobs is None or (isinstance(logprobs, (list, np.ndarray)) and len(logprobs) == 0):
             return np.array([])
         
+        # Handle dict format (OpenAI, Groq)
         if isinstance(logprobs, dict):
             if 'token_logprobs' in logprobs:
                 token_logprobs = logprobs['token_logprobs']
@@ -354,7 +355,11 @@ class NaiveConfidenceCalculator:
                 ]
             else:
                 return np.array([])
+        # Handle Together AI LogprobsPart object
+        elif hasattr(logprobs, 'token_logprobs'):
+            token_logprobs = logprobs.token_logprobs
         else:
+            # Fallback: assume logprobs is already a list/array
             token_logprobs = logprobs
         
         # Convert to numpy and filter NaN
@@ -402,7 +407,7 @@ class SemanticEnergyCalculator:
         Returns:
             Dictionary with energy metrics
         """
-        if not logprobs:
+        if logprobs is None or (isinstance(logprobs, (list, np.ndarray)) and len(logprobs) == 0):
             logger.warning("No logprobs provided")
             return {
                 'semantic_energy': None,
@@ -411,7 +416,7 @@ class SemanticEnergyCalculator:
         
         # Extract logits
         # Format depends on API provider
-        # Together AI format: logprobs is a dict with 'tokens' and 'token_logprobs'
+        # Together AI format: logprobs can be dict or LogprobsPart object with 'token_logprobs' attribute
         
         if isinstance(logprobs, dict):
             if 'token_logprobs' in logprobs:
@@ -425,10 +430,14 @@ class SemanticEnergyCalculator:
             else:
                 logger.warning(f"Unknown logprobs format: {list(logprobs.keys())}")
                 return {'semantic_energy': None, 'method': method}
+        elif hasattr(logprobs, 'token_logprobs'):
+            # Handle Together AI LogprobsPart object
+            token_logprobs = logprobs.token_logprobs
         else:
+            # Fallback: assume logprobs is already a list/array
             token_logprobs = logprobs
         
-        if not token_logprobs:
+        if token_logprobs is None or (isinstance(token_logprobs, (list, np.ndarray)) and len(token_logprobs) == 0):
             return {'semantic_energy': None, 'method': method}
         
         # Convert to numpy array
@@ -469,13 +478,213 @@ class SemanticEnergyCalculator:
         }
 
 
+class MCQFeatureCalculator:
+    """Calculate MCQ-specific features for multiple-choice question formats.
+    
+    For MCQ responses, standard text-level features (NLI semantic entropy, 
+    averaged logprobs) are orthogonal to correctness. Instead, we extract 
+    features that capture the model's confidence about its letter choice:
+    
+    1. Letter Consistency: How often stochastic samples agree on the same letter
+    2. MCQ Letter Entropy: Shannon entropy over the letter distribution
+    3. First-Token Logprob: The logprob of just the answer letter token
+    """
+    
+    # Valid MCQ option letters
+    VALID_LETTERS = {'A', 'B', 'C', 'D'}
+    
+    @staticmethod
+    def extract_selected_option(response: str) -> Optional[str]:
+        """
+        Extract the option letter (A/B/C/D) selected by the LLM.
+        
+        Mirrors the logic in MedicalLabeler.extract_selected_option.
+        
+        Args:
+            response: LLM response text
+            
+        Returns:
+            Option letter (A/B/C/D) or None if cannot parse
+        """
+        import re
+        response = response.strip()
+        
+        # Check first few characters for single letter answer
+        if len(response) > 0 and response[0].upper() in MCQFeatureCalculator.VALID_LETTERS:
+            return response[0].upper()
+        
+        # Check for patterns like "Answer: A" or "The answer is B"
+        patterns = [
+            r'\b([ABCD])\b',
+            r'answer[:\s]+([ABCD])\b',
+            r'option[:\s]+([ABCD])\b',
+            r'choice[:\s]+([ABCD])\b',
+            r'^([ABCD])\)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, response, re.IGNORECASE)
+            if match:
+                return match.group(1).upper()
+        
+        return None
+    
+    def calculate_letter_consistency(self, samples: List[Dict]) -> Dict[str, float]:
+        """
+        Calculate letter consistency across stochastic samples.
+        
+        Measures how often the stochastic samples agree on the same MCQ letter.
+        High consistency = model is confident in its choice.
+        
+        Args:
+            samples: List of response sample dicts with 'text' key
+            
+        Returns:
+            Dictionary with letter consistency features
+        """
+        letters = []
+        for sample in samples:
+            text = sample.get('text', '')
+            letter = self.extract_selected_option(text)
+            if letter is not None:
+                letters.append(letter)
+        
+        if len(letters) == 0:
+            return {
+                'mcq_letter_consistency': 0.0,
+                'mcq_num_unique_letters': 0,
+                'mcq_parseable_ratio': 0.0,
+                'mcq_mode_letter_count': 0,
+            }
+        
+        from collections import Counter
+        letter_counts = Counter(letters)
+        mode_count = letter_counts.most_common(1)[0][1]
+        
+        consistency = mode_count / len(letters)
+        num_unique = len(letter_counts)
+        parseable_ratio = len(letters) / len(samples)
+        
+        return {
+            'mcq_letter_consistency': float(consistency),
+            'mcq_num_unique_letters': num_unique,
+            'mcq_parseable_ratio': float(parseable_ratio),
+            'mcq_mode_letter_count': mode_count,
+        }
+    
+    def calculate_mcq_letter_entropy(self, samples: List[Dict]) -> Dict[str, float]:
+        """
+        Calculate Shannon entropy over the letter distribution from stochastic samples.
+        
+        Instead of NLI-based semantic entropy (which is broken for MCQ because
+        explanations always differ), compute entropy over {A, B, C, D} choices.
+        
+        Args:
+            samples: List of response sample dicts with 'text' key
+            
+        Returns:
+            Dictionary with MCQ entropy features
+        """
+        letters = []
+        for sample in samples:
+            text = sample.get('text', '')
+            letter = self.extract_selected_option(text)
+            if letter is not None:
+                letters.append(letter)
+        
+        if len(letters) == 0:
+            return {
+                'mcq_letter_entropy': np.log2(4),  # Maximum entropy as fallback
+            }
+        
+        from collections import Counter
+        letter_counts = Counter(letters)
+        total = len(letters)
+        
+        # Shannon entropy over letter distribution
+        probs = np.array([count / total for count in letter_counts.values()])
+        entropy = -np.sum(probs * np.log2(probs + 1e-10))
+        
+        return {
+            'mcq_letter_entropy': float(entropy),
+        }
+    
+    def extract_first_token_logprob(self, samples: List[Dict]) -> Dict[str, float]:
+        """
+        Extract the logprob of just the first content token (the answer letter).
+        
+        The first token carries the actual decision signal. Averaging over all
+        ~1024 tokens drowns this signal in explanation text noise.
+        
+        Args:
+            samples: List of response sample dicts (uses first sample's logprobs)
+            
+        Returns:
+            Dictionary with first-token logprob features
+        """
+        primary_sample = samples[0] if samples else {}
+        logprobs = primary_sample.get('logprobs')
+        
+        if logprobs is None:
+            return {
+                'mcq_first_token_logprob': None,
+                'mcq_first_token_prob': None,
+            }
+        
+        # Extract token logprobs array
+        token_logprobs = None
+        if isinstance(logprobs, dict):
+            token_logprobs = logprobs.get('token_logprobs')
+        elif hasattr(logprobs, 'token_logprobs'):
+            token_logprobs = logprobs.token_logprobs
+        elif isinstance(logprobs, (list, np.ndarray)):
+            token_logprobs = logprobs
+        
+        if token_logprobs is None or len(token_logprobs) == 0:
+            return {
+                'mcq_first_token_logprob': None,
+                'mcq_first_token_prob': None,
+            }
+        
+        first_logprob = float(token_logprobs[0])
+        
+        # Handle NaN
+        if np.isnan(first_logprob):
+            return {
+                'mcq_first_token_logprob': None,
+                'mcq_first_token_prob': None,
+            }
+        
+        return {
+            'mcq_first_token_logprob': first_logprob,
+            'mcq_first_token_prob': float(np.exp(first_logprob)),
+        }
+    
+    def calculate_all_mcq_features(self, samples: List[Dict]) -> Dict[str, float]:
+        """
+        Calculate all MCQ-specific features.
+        
+        Args:
+            samples: List of response sample dicts
+            
+        Returns:
+            Dictionary with all MCQ features
+        """
+        features = {}
+        features.update(self.calculate_letter_consistency(samples))
+        features.update(self.calculate_mcq_letter_entropy(samples))
+        features.update(self.extract_first_token_logprob(samples))
+        return features
+
+
 def extract_epistemic_features(
     response_file: str,
     entropy_calc=None,
     energy_calc=None,
     calculate_entropy: bool = True,
     calculate_energy: bool = True,
-    calculate_naive: bool = True
+    calculate_naive: bool = True,
+    format_type: str = "free_text"
 ) -> Dict[str, any]:
     """
     Extract epistemic uncertainty features from response file.
@@ -487,6 +696,7 @@ def extract_epistemic_features(
         calculate_entropy: Whether to calculate semantic entropy
         calculate_energy: Whether to calculate semantic energy
         calculate_naive: Whether to calculate naive confidence baselines
+        format_type: Response format type ('free_text' or 'mcq')
         
     Returns:
         Dictionary with features
@@ -496,7 +706,13 @@ def extract_epistemic_features(
     
     features = {}
     
-    # Semantic Entropy
+    # MCQ-specific features (for multiple-choice format)
+    if format_type == "mcq":
+        mcq_calc = MCQFeatureCalculator()
+        mcq_features = mcq_calc.calculate_all_mcq_features(samples)
+        features.update(mcq_features)
+    
+    # Semantic Entropy (standard NLI-based)
     if calculate_entropy:
         texts = [sample['text'] for sample in samples]
         
