@@ -81,3 +81,21 @@ socratic_train.csv
 socratic_test.csv
 main_train.csv
 main_test.csv
+
+# Temporary test/validation scripts
+validate_*.py
+test_*.py
+quick_*.py
+reprocess_with_*.py
+generate_visualizations.py
+
+# Temporary status/planning markdown files
+*_STATUS.md
+CURRENT_STATUS.md
+COMMIT_STRATEGY*.md
+VERIFICATION_PLAN*.md
+CLEAN_VISUALIZATIONS_STATUS.md
+
+# Orphan data files (no extension)
+medicine
+psychology

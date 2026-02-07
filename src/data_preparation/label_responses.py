@@ -79,13 +79,16 @@ def label_all_responses(
             else:
                 primary_response = str(responses)
             
-            # Label the response
-            label_result = labeler.label_response(
-                response=primary_response,
-                ground_truth=row['ground_truth'],
-                domain=domain,
-                prompt=row['prompt']
-            )
+            # Label the response (pass existing_label for is_agents / HalluMix)
+            label_kwargs = {
+                'response': primary_response,
+                'ground_truth': row['ground_truth'],
+                'domain': domain,
+                'prompt': row['prompt']
+            }
+            if 'existing_label' in row.index and pd.notna(row.get('existing_label')):
+                label_kwargs['existing_label'] = int(row['existing_label'])
+            label_result = labeler.label_response(**label_kwargs)
             
             # Create record
             record = {

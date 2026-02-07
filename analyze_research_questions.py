@@ -7,6 +7,9 @@ RQ2: Semantic Uncertainty vs Naive Confidence
 RQ3: Cross-Domain Variance in Hallucination Signatures
 """
 
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend to prevent crashes
+
 import argparse
 import pandas as pd
 import logging
