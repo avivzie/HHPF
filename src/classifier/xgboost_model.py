@@ -7,6 +7,7 @@ import numpy as np
 import xgboost as xgb
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.feature_selection import mutual_info_classif, SelectKBest, chi2, f_classif, VarianceThreshold
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 import logging
@@ -17,6 +18,11 @@ from src.features.feature_aggregator import FeatureAggregator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def mutual_info_classif_with_seed(X, y):
+    """Wrapper for mutual_info_classif with fixed random_state for reproducibility."""
+    return mutual_info_classif(X, y, random_state=42)
 
 
 class HallucinationClassifier:
@@ -30,9 +36,82 @@ class HallucinationClassifier:
             config_name: Configuration file name
         """
         self.config = load_config(config_name)['xgboost']
+        self.feature_config = load_config("features").get('feature_selection', {})
         self.model = None
         self.feature_names = None
         self.feature_importance = None
+        self.selected_features = None
+        self.feature_selector = None
+    
+    def select_features(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series
+    ) -> Tuple[pd.DataFrame, List[str]]:
+        """
+        Select top-k features using specified method.
+        
+        Args:
+            X: Feature DataFrame
+            y: Labels
+            
+        Returns:
+            Tuple of (selected features DataFrame, list of selected feature names)
+        """
+        method = self.feature_config.get('method', 'mutual_info')
+        k_best = self.feature_config.get('k_best', 15)
+        
+        # Step 1: Remove zero-variance (constant) features first
+        variance_selector = VarianceThreshold(threshold=0.0)
+        X_var_filtered = variance_selector.fit_transform(X)
+        var_feature_mask = variance_selector.get_support()
+        var_filtered_features = X.columns[var_feature_mask].tolist()
+        
+        n_constant = len(X.columns) - len(var_filtered_features)
+        if n_constant > 0:
+            logger.info(f"Removed {n_constant} constant features (zero variance)")
+        
+        X = pd.DataFrame(X_var_filtered, columns=var_filtered_features, index=X.index)
+        
+        # Step 2: Dynamically cap k_best based on sample size (enforce 5:1 sample-to-feature ratio)
+        max_features = max(1, len(y) // 5)
+        k_best = min(k_best, max_features, len(X.columns))
+        
+        logger.info(f"Feature selection: method={method}, k_best={k_best} (max={max_features} for {len(y)} samples)")
+        
+        # Step 3: Select scoring function
+        if method == 'mutual_info':
+            score_func = mutual_info_classif
+        elif method == 'chi2':
+            score_func = chi2
+            # chi2 requires non-negative features
+            if (X < 0).any().any():
+                logger.warning("chi2 requires non-negative features, using mutual_info instead")
+                score_func = mutual_info_classif
+        elif method == 'f_classif':
+            score_func = f_classif
+        else:
+            logger.warning(f"Unknown method '{method}', using mutual_info")
+            score_func = mutual_info_classif
+        
+        # Step 4: Perform feature selection on non-constant features
+        # Note: mutual_info_classif uses randomness, use wrapper with fixed seed for reproducibility
+        if method == 'mutual_info':
+            score_func = mutual_info_classif_with_seed
+        
+        self.feature_selector = SelectKBest(score_func=score_func, k=k_best)
+        X_selected = self.feature_selector.fit_transform(X, y)
+        
+        # Get selected feature names
+        feature_mask = self.feature_selector.get_support()
+        selected_features = [col for col, selected in zip(X.columns, feature_mask) if selected]
+        
+        # Create DataFrame with selected features
+        X_selected_df = pd.DataFrame(X_selected, columns=selected_features, index=X.index)
+        
+        logger.info(f"Selected features: {', '.join(selected_features[:5])}{'...' if len(selected_features) > 5 else ''}")
+        
+        return X_selected_df, selected_features
     
     def prepare_data(
         self,
@@ -61,6 +140,19 @@ class HallucinationClassifier:
         
         # Store feature names
         self.feature_names = feature_cols
+        
+        # Handle any remaining NaN values before feature selection
+        if X.isnull().any().any():
+            logger.warning(f"Found NaN values in features, filling with median")
+            X = X.fillna(X.median())
+            # Fill any remaining NaNs (if column is all NaN) with 0
+            X = X.fillna(0)
+        
+        # Perform feature selection if enabled
+        if self.feature_config.get('enabled', False):
+            logger.info("Feature selection enabled")
+            X, self.selected_features = self.select_features(X, y)
+            logger.info(f"Selected {len(self.selected_features)} features from {len(feature_cols)}")
         
         # Split data
         if 'split' in features_df.columns:
@@ -107,13 +199,35 @@ class HallucinationClassifier:
         Returns:
             Trained model
         """
+        # Create internal validation split if not provided (for early stopping)
+        use_internal_val = False
+        if X_val is None and y_val is None and len(y_train) > 20:
+            # Split train into train/val (80/20) for early stopping
+            X_train_split, X_val, y_train_split, y_val = train_test_split(
+                X_train, y_train,
+                test_size=0.2,
+                random_state=42,
+                stratify=y_train
+            )
+            X_train = X_train_split
+            y_train = y_train_split
+            use_internal_val = True
+            logger.info(f"Created internal validation set: {len(X_train)} train, {len(X_val)} val")
+        
         # Calculate scale_pos_weight for class imbalance
         scale_pos_weight = self.config.get('scale_pos_weight', 'auto')
         if scale_pos_weight == 'auto':
             neg_count = (y_train == 0).sum()
             pos_count = (y_train == 1).sum()
             scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1
+            
+            # Apply multiplier if specified (for domains with severe imbalance)
+            multiplier = self.config.get('scale_pos_weight_multiplier', 1.0)
+            scale_pos_weight = scale_pos_weight * multiplier
+            
             logger.info(f"Calculated scale_pos_weight: {scale_pos_weight:.2f}")
+            if multiplier != 1.0:
+                logger.info(f"  Applied multiplier: {multiplier:.2f}x (increases sensitivity to hallucinations)")
         
         # Initialize model
         model_params = {
@@ -129,12 +243,12 @@ class HallucinationClassifier:
             'objective': self.config.get('objective', 'binary:logistic'),
             'scale_pos_weight': scale_pos_weight,
             'random_state': 42,
-            'n_jobs': -1
+            'n_jobs': 1
         }
         
         self.model = xgb.XGBClassifier(**model_params)
         
-        # Train with early stopping if validation set provided
+        # Train with early stopping if validation set is available
         if X_val is not None and y_val is not None:
             early_stopping_rounds = self.config.get('early_stopping_rounds', 20)
             
@@ -170,6 +284,10 @@ class HallucinationClassifier:
         if self.model is None:
             raise ValueError("Model not trained yet")
         
+        # Apply feature selection if it was used during training
+        if self.selected_features is not None:
+            X = X[self.selected_features]
+        
         return self.model.predict(X)
     
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
@@ -184,6 +302,10 @@ class HallucinationClassifier:
         """
         if self.model is None:
             raise ValueError("Model not trained yet")
+        
+        # Apply feature selection if it was used during training
+        if self.selected_features is not None:
+            X = X[self.selected_features]
         
         return self.model.predict_proba(X)[:, 1]
     
@@ -227,6 +349,77 @@ class HallucinationClassifier:
         
         return metrics
     
+    def evaluate_thresholds(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        thresholds: List[float] = None
+    ) -> pd.DataFrame:
+        """
+        Evaluate model at different decision thresholds.
+        
+        Args:
+            X: Features
+            y: True labels
+            thresholds: List of thresholds to test (default: [0.3, 0.35, 0.4, 0.45, 0.5])
+            
+        Returns:
+            DataFrame with metrics for each threshold
+        """
+        if thresholds is None:
+            thresholds = [0.3, 0.35, 0.4, 0.45, 0.5]
+        
+        # Get probabilities
+        y_proba = self.predict_proba(X)
+        
+        results = []
+        for threshold in thresholds:
+            # Apply threshold
+            y_pred = (y_proba >= threshold).astype(int)
+            
+            # Calculate metrics
+            from sklearn.metrics import confusion_matrix
+            tn, fp, fn, tp = confusion_matrix(y, y_pred).ravel()
+            
+            metrics = {
+                'threshold': threshold,
+                'accuracy': accuracy_score(y, y_pred),
+                'precision': precision_score(y, y_pred, zero_division=0),
+                'recall': recall_score(y, y_pred, zero_division=0),
+                'f1': f1_score(y, y_pred, zero_division=0),
+                'true_negatives': int(tn),
+                'false_positives': int(fp),
+                'false_negatives': int(fn),
+                'true_positives': int(tp),
+                'specificity': tn / (tn + fp) if (tn + fp) > 0 else 0
+            }
+            results.append(metrics)
+        
+        results_df = pd.DataFrame(results)
+        
+        # Log results
+        logger.info("\n" + "="*70)
+        logger.info("THRESHOLD ANALYSIS")
+        logger.info("="*70)
+        for _, row in results_df.iterrows():
+            logger.info(f"\nThreshold: {row['threshold']:.2f}")
+            logger.info(f"  Accuracy:   {row['accuracy']:.4f}")
+            logger.info(f"  Precision:  {row['precision']:.4f}")
+            logger.info(f"  Recall:     {row['recall']:.4f}")
+            logger.info(f"  F1 Score:   {row['f1']:.4f}")
+            logger.info(f"  Specificity: {row['specificity']:.4f}")
+            logger.info(f"  Confusion: TP={row['true_positives']}, TN={row['true_negatives']}, FP={row['false_positives']}, FN={row['false_negatives']}")
+        
+        # Find best threshold by F1 score
+        best_idx = results_df['f1'].idxmax()
+        best_row = results_df.iloc[best_idx]
+        logger.info("\n" + "="*70)
+        logger.info(f"BEST THRESHOLD (by F1): {best_row['threshold']:.2f}")
+        logger.info(f"  F1={best_row['f1']:.4f}, Precision={best_row['precision']:.4f}, Recall={best_row['recall']:.4f}")
+        logger.info("="*70 + "\n")
+        
+        return results_df
+    
     def get_feature_importance(self, top_k: Optional[int] = None) -> pd.DataFrame:
         """
         Get feature importance rankings.
@@ -240,8 +433,11 @@ class HallucinationClassifier:
         if self.model is None or self.feature_importance is None:
             raise ValueError("Model not trained yet")
         
+        # Use selected features if feature selection was applied
+        feature_names = self.selected_features if self.selected_features is not None else self.feature_names
+        
         importance_df = pd.DataFrame({
-            'feature': self.feature_names,
+            'feature': feature_names,
             'importance': self.feature_importance
         })
         
@@ -268,7 +464,9 @@ class HallucinationClassifier:
             'model': self.model,
             'feature_names': self.feature_names,
             'feature_importance': self.feature_importance,
-            'config': self.config
+            'config': self.config,
+            'selected_features': self.selected_features,
+            'feature_selector': self.feature_selector
         }
         
         with open(output_path, 'wb') as f:
@@ -289,6 +487,8 @@ class HallucinationClassifier:
         self.model = model_data['model']
         self.feature_names = model_data['feature_names']
         self.feature_importance = model_data.get('feature_importance')
+        self.selected_features = model_data.get('selected_features')
+        self.feature_selector = model_data.get('feature_selector')
         
         logger.info(f"✓ Model loaded from {model_path}")
 
