@@ -36,7 +36,8 @@ class FeatureAggregator:
         prompt_id: str,
         prompt: str,
         response_file: str,
-        domain: str
+        domain: str,
+        format_type: str = "free_text"
     ) -> Dict[str, any]:
         """
         Extract all features for a single prompt.
@@ -46,6 +47,7 @@ class FeatureAggregator:
             prompt: Prompt text
             response_file: Path to response samples file
             domain: Domain name
+            format_type: Response format ('free_text' or 'mcq')
             
         Returns:
             Dictionary with all features
@@ -72,7 +74,8 @@ class FeatureAggregator:
             epistemic_features = extract_epistemic_features(
                 response_file,
                 entropy_calc=self.entropy_calc,
-                energy_calc=self.energy_calc
+                energy_calc=self.energy_calc,
+                format_type=format_type
             )
             features.update(epistemic_features)
         except Exception as e:
@@ -138,7 +141,8 @@ class FeatureAggregator:
     def aggregate_features(
         self,
         responses_csv: str,
-        output_path: Optional[str] = None
+        output_path: Optional[str] = None,
+        format_type: str = "free_text"
     ) -> pd.DataFrame:
         """
         Aggregate features for all prompts in a dataset.
@@ -146,6 +150,7 @@ class FeatureAggregator:
         Args:
             responses_csv: Path to responses CSV (from response_generator)
             output_path: Output path for feature matrix
+            format_type: Response format ('free_text' or 'mcq')
             
         Returns:
             DataFrame with all features
@@ -153,6 +158,8 @@ class FeatureAggregator:
         # Load responses
         responses_df = pd.read_csv(responses_csv)
         logger.info(f"Loaded {len(responses_df)} responses from {responses_csv}")
+        if format_type == "mcq":
+            logger.info("MCQ format detected - extracting MCQ-specific features")
         
         # Extract features for each prompt
         all_features = []
@@ -162,7 +169,8 @@ class FeatureAggregator:
                 prompt_id=row['prompt_id'],
                 prompt=row['prompt'],
                 response_file=row['response_file'],
-                domain=row['domain']
+                domain=row['domain'],
+                format_type=format_type
             )
             
             # Add domain encoding
