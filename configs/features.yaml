@@ -64,8 +64,18 @@ aggregation:
   normalize_features: false  # XGBoost doesn't require normalization
   handle_missing: "mean"  # Options: "mean", "median", "drop", "zero"
 
+# MCQ-Specific Features (for multiple-choice domains like medicine)
+mcq_features:
+  enabled: true
+  # Letter consistency: fraction of stochastic samples agreeing on same letter
+  letter_consistency: true
+  # Shannon entropy over letter distribution (replaces NLI-based entropy for MCQ)
+  letter_entropy: true
+  # First-token logprob: the logprob of the answer letter token only
+  first_token_logprob: true
+
 # Feature Selection (optional)
 feature_selection:
-  enabled: false
+  enabled: true
   method: "mutual_info"  # Options: "mutual_info", "chi2", "f_classif"
-  k_best: 15  # Select top k features
+  k_best: 15  # Select top k features (capped dynamically by n_samples // 5)
