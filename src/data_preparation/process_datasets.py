@@ -62,41 +62,12 @@ def process_dataset(domain: str, output_dir: str = "data/processed", limit: int 
         lambda x: formatter.format_prompt(x, domain_name)
     )
     
-    # Create train/test split
-    train_ratio = global_config.get('train_test_split', 0.8)
-    random_seed = global_config.get('random_seed', 42)
+    # NOTE: Train/test split now happens AFTER labeling (in label_responses.py)
+    # This enables proper stratification on actual hallucination labels
+    # The split column will be added during the labeling step
+    logger.info("⚠️  Train/test split will happen AFTER labeling for proper stratification")
     
-    # Stratification for domains with heterogeneous answer types
-    stratify_column = None
-    if domain == 'medicine':
-        # Stratify by "None of the above" vs specific answers
-        # This ensures proportional representation in train/test sets
-        df['_stratify_label'] = df['ground_truth'].str.lower().isin([
-            'none of the above', 'none', 'no correct answer'
-        ]).map({True: 'none', False: 'specific'})
-        stratify_column = df['_stratify_label']
-        logger.info(f"Using stratified split for {domain} domain")
-        logger.info(f"  'None of above': {(df['_stratify_label'] == 'none').sum()} samples")
-        logger.info(f"  Specific answers: {(df['_stratify_label'] == 'specific').sum()} samples")
-    
-    train_df, test_df = train_test_split(
-        df,
-        train_size=train_ratio,
-        random_state=random_seed,
-        shuffle=True,
-        stratify=stratify_column
-    )
-    
-    train_df['split'] = 'train'
-    test_df['split'] = 'test'
-    
-    # Remove temporary stratification column if it exists
-    if '_stratify_label' in train_df.columns:
-        train_df = train_df.drop(columns=['_stratify_label'])
-        test_df = test_df.drop(columns=['_stratify_label'])
-    
-    # Combine
-    full_df = pd.concat([train_df, test_df], ignore_index=True)
+    full_df = df
     
     # Select important columns
     output_columns = [
@@ -120,8 +91,7 @@ def process_dataset(domain: str, output_dir: str = "data/processed", limit: int 
     
     logger.info(f"✓ Saved processed dataset to {output_path}")
     logger.info(f"  Total: {len(output_df)} examples")
-    logger.info(f"  Train: {len(train_df)} examples ({train_ratio*100:.0f}%)")
-    logger.info(f"  Test: {len(test_df)} examples ({(1-train_ratio)*100:.0f}%)")
+    logger.info(f"  Note: Train/test split will be created after labeling")
     
     return output_df
 

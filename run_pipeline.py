@@ -44,17 +44,19 @@ def run_full_pipeline(
     logger.info(f"Sample limit: {limit if limit else 'None'}")
     logger.info(f"API Provider: {provider}")
     
-    # 1. Data Preparation
+    # 1. Data Preparation (NO TRAIN/TEST SPLIT YET)
     logger.info("\n" + "="*60)
-    logger.info("STEP 1: Data Preparation")
+    logger.info("STEP 1: Data Preparation (without split)")
     logger.info("="*60)
     
     from src.data_preparation.process_datasets import process_dataset
     
     try:
+        # Note: This now loads and formats data WITHOUT creating train/test split
+        # The split will happen AFTER labeling in step 3
         processed_df = process_dataset(domain, limit=limit)
         dataset_path = f"data/processed/{domain}_processed.csv"
-        logger.info(f"✓ Dataset processed: {len(processed_df)} samples")
+        logger.info(f"✓ Dataset processed: {len(processed_df)} samples (no split yet)")
     except FileNotFoundError as e:
         logger.error(f"Dataset not found: {e}")
         logger.error(f"Please place your dataset in data/raw/")
@@ -76,16 +78,35 @@ def run_full_pipeline(
             limit=limit
         )
         
-        responses_path = f"data/features/responses_{domain}_processed.csv"
         logger.info(f"✓ Responses generated: {len(responses_df)} samples")
     else:
-        responses_path = f"data/features/responses_{domain}_processed.csv"
         logger.info("⊳ Skipping inference (using cached responses)")
     
-    # 3. Feature Extraction
+    # 3. Label Responses & Create Stratified Split
+    logger.info("\n" + "="*60)
+    logger.info("STEP 3: Label Responses & Stratified Split")
+    logger.info("="*60)
+    logger.info("📝 Labeling all responses before splitting (enables proper stratification)")
+    
+    from src.data_preparation.label_responses import label_all_responses, save_labeled_responses
+    
+    labeled_df = label_all_responses(
+        processed_csv=dataset_path,
+        responses_dir="data/features",
+        domain=domain,
+        train_ratio=0.8,
+        random_seed=42
+    )
+    
+    # Save labeled responses with stratified split
+    responses_path = f"data/features/responses_{domain}_processed.csv"
+    save_labeled_responses(labeled_df, responses_path)
+    logger.info(f"✓ Labeled responses with stratified split: {len(labeled_df)} samples")
+    
+    # 4. Feature Extraction
     if not skip_features:
         logger.info("\n" + "="*60)
-        logger.info("STEP 3: Feature Extraction")
+        logger.info("STEP 4: Feature Extraction")
         logger.info("="*60)
         
         from src.features.feature_aggregator import FeatureAggregator
@@ -103,10 +124,10 @@ def run_full_pipeline(
         features_path = f"data/features/{domain}_features.csv"
         logger.info("⊳ Skipping feature extraction (using cached features)")
     
-    # 4. Model Training
+    # 5. Model Training
     if not skip_training:
         logger.info("\n" + "="*60)
-        logger.info("STEP 4: Model Training")
+        logger.info("STEP 5: Model Training")
         logger.info("="*60)
         
         from src.classifier.xgboost_model import HallucinationClassifier
@@ -130,9 +151,9 @@ def run_full_pipeline(
         model_path = f"outputs/models/xgboost_{domain}.pkl"
         logger.info("⊳ Skipping training (using existing model)")
     
-    # 5. Evaluation & Visualization
+    # 6. Evaluation & Visualization
     logger.info("\n" + "="*60)
-    logger.info("STEP 5: Evaluation & Visualization")
+    logger.info("STEP 6: Evaluation & Visualization")
     logger.info("="*60)
     
     from src.evaluation.metrics import MetricsCalculator
@@ -164,8 +185,14 @@ def run_full_pipeline(
         import numpy as np
         if isinstance(obj, np.ndarray):
             return obj.tolist()
+        elif isinstance(obj, (np.integer, np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32)):
+            return float(obj)
         elif isinstance(obj, dict):
             return {k: convert_numpy(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_numpy(item) for item in obj]
         return obj
     
     with open(metrics_path, 'w') as f:

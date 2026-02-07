@@ -447,7 +447,22 @@ class MedicalLabeler(GroundTruthLabeler):
 
 
 class TruthfulnessLabeler(GroundTruthLabeler):
-    """Labeler for TruthfulQA dataset."""
+    """Labeler for TruthfulQA dataset using semantic similarity."""
+    
+    def __init__(self):
+        """Initialize semantic similarity model."""
+        super().__init__()
+        self._model = None
+    
+    def _get_model(self):
+        """Lazy load sentence transformer model."""
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+            logger.info("Loading sentence-transformers model for semantic similarity...")
+            # Use a lightweight but effective model
+            self._model = SentenceTransformer('all-MiniLM-L6-v2')
+            logger.info("✓ Sentence transformer model loaded")
+        return self._model
     
     def label_response(
         self, 
@@ -458,9 +473,10 @@ class TruthfulnessLabeler(GroundTruthLabeler):
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Label response based on truthfulness.
+        Label response based on truthfulness using semantic similarity.
         
-        TruthfulQA may already have labels in the dataset.
+        Uses sentence embeddings to capture semantic meaning rather than
+        character-level text similarity.
         """
         # Handle NULL/NaN ground truth
         if pd.isna(ground_truth) or ground_truth is None or ground_truth == '':
@@ -483,16 +499,49 @@ class TruthfulnessLabeler(GroundTruthLabeler):
                 'method': 'truthfulqa_label'
             }
         
-        # Otherwise, use text similarity
-        similarity = SequenceMatcher(None, response.lower(), ground_truth_str.lower()).ratio()
-        threshold = 0.6
-        
-        return {
-            'hallucination_label': 0 if similarity >= threshold else 1,
-            'confidence': 0.7,
-            'similarity_score': similarity,
-            'method': 'text_similarity'
-        }
+        # Use semantic similarity via sentence embeddings
+        try:
+            model = self._get_model()
+            
+            # Encode both texts
+            embeddings = model.encode([response, ground_truth_str])
+            
+            # Calculate cosine similarity
+            from sklearn.metrics.pairwise import cosine_similarity
+            import numpy as np
+            similarity = cosine_similarity(
+                embeddings[0].reshape(1, -1),
+                embeddings[1].reshape(1, -1)
+            )[0][0]
+            
+            # Threshold 0.7 for semantic similarity (0-1 scale where 1 = identical meaning)
+            # This is more forgiving than text similarity since it captures semantic equivalence
+            threshold = 0.7
+            
+            return {
+                'hallucination_label': 0 if similarity >= threshold else 1,
+                'confidence': 0.8,
+                'semantic_similarity': float(similarity),
+                'threshold_used': threshold,
+                'method': 'semantic_similarity'
+            }
+        except Exception as e:
+            logger.warning(f"Semantic similarity failed: {e}, falling back to simple text matching")
+            # Fallback to simple containment check
+            response_lower = response.lower()
+            truth_lower = ground_truth_str.lower()
+            
+            # Check if key words from ground truth appear in response
+            truth_words = set(truth_lower.split())
+            response_words = set(response_lower.split())
+            overlap = len(truth_words & response_words) / len(truth_words) if truth_words else 0
+            
+            return {
+                'hallucination_label': 0 if overlap >= 0.5 else 1,
+                'confidence': 0.6,
+                'word_overlap': overlap,
+                'method': 'fallback_word_overlap'
+            }
 
 
 class FactualConsistencyLabeler(GroundTruthLabeler):
