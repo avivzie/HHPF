@@ -159,16 +159,41 @@ class DatasetLoader:
 class MedicineLoader(DatasetLoader):
     """Specialized loader for Med-HALT dataset."""
     
+    def get_prompt_and_answer(self, domain: str, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Extract prompt, answer, and MCQ options for Med-HALT.
+        
+        Overrides base method to preserve 'options' and 'correct_index' columns
+        which are needed for MCQ-formatted prompts and exact-match labeling.
+        """
+        # Call parent method for standard processing
+        result = super().get_prompt_and_answer(domain, df)
+        
+        # Preserve MCQ-specific columns
+        if 'options' in df.columns:
+            result['options'] = df['options']
+        if 'correct_index' in df.columns:
+            result['correct_index'] = df['correct_index']
+        
+        return result
+    
     def preprocess(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Preprocess Med-HALT dataset."""
+        """Preprocess Med-HALT dataset for MCQ format."""
+        initial_count = len(df)
+        
         # Filter out samples with NULL ground truth
         # Med-HALT has ~1,860 samples with missing ground truth
-        initial_count = len(df)
         df = df[df['ground_truth'].notna() & (df['ground_truth'] != '')]
-        filtered_count = initial_count - len(df)
+        null_filtered = initial_count - len(df)
+        if null_filtered > 0:
+            logger.info(f"Filtered out {null_filtered} samples with NULL ground truth ({null_filtered/initial_count*100:.1f}%)")
         
-        if filtered_count > 0:
-            logger.info(f"Filtered out {filtered_count} samples with NULL ground truth ({filtered_count/initial_count*100:.1f}%)")
+        # NOTE: We do NOT filter "None of the above" for MCQ format.
+        # These are valid MCQ options that the LLM can select. The exact-match labeling
+        # compares the selected option letter (A/B/C/D) to the correct index, regardless
+        # of whether that option says "None of the above" or a specific answer.
+        
+        logger.info(f"Medicine dataset after filtering: {len(df)} samples (from {initial_count} original)")
         
         return df
 
@@ -200,20 +225,80 @@ class MathLoader(DatasetLoader):
 
 
 class FinanceLoader(DatasetLoader):
-    """Specialized loader for FinanceBench dataset."""
+    """Specialized loader for Finance datasets (FinanceBench, TAT-QA)."""
+    
+    def get_prompt_and_answer(self, domain: str, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Extract prompt, answer, and documents for Finance.
+        
+        Overrides base method to preserve documents column for document-grounded
+        labeling. Handles 'context' column (TAT-QA) by renaming to 'documents'.
+        """
+        # Call parent method for standard processing
+        result = super().get_prompt_and_answer(domain, df)
+        
+        # TAT-QA uses 'context' column - rename to 'documents' for consistency
+        if 'context' in df.columns:
+            result['documents'] = df['context']
+            logger.info(f"Renamed 'context' column to 'documents' for document-grounded labeling")
+        # FinanceBench or other datasets might already have 'documents'
+        elif 'documents' in df.columns:
+            result['documents'] = df['documents']
+            logger.info(f"Preserved 'documents' column for document-grounded labeling")
+        
+        return result
     
     def preprocess(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Preprocess FinanceBench dataset."""
-        # Add any FinanceBench specific preprocessing
+        """Preprocess Finance dataset."""
+        # Add any Finance specific preprocessing
         return df
 
 
 class ISAgentsLoader(DatasetLoader):
     """Specialized loader for HalluMix dataset."""
     
+    def get_prompt_and_answer(self, domain: str, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Extract prompt, answer, and documents for HalluMix.
+        
+        Overrides base method to preserve 'documents' column which is needed
+        for document-grounded labeling (comparing LLM response against source docs).
+        """
+        # Call parent method for standard processing
+        result = super().get_prompt_and_answer(domain, df)
+        
+        # Preserve documents column for document-grounded QA
+        if 'documents' in df.columns:
+            result['documents'] = df['documents']
+            logger.info(f"Preserved 'documents' column for document-grounded labeling")
+        
+        return result
+    
     def preprocess(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Preprocess HalluMix dataset."""
-        # Add any HalluMix specific preprocessing
+        """
+        Preprocess HalluMix dataset.
+        
+        Filters out samples without questions (NLI/summarization tasks)
+        since only QA-type samples are suitable for the question-answering pipeline.
+        """
+        initial_count = len(df)
+        
+        # Filter out samples with missing questions
+        # HalluMix has ~4000 NLI/summarization samples without questions
+        df = df[df['prompt'].notna() & (df['prompt'].str.strip() != '')].copy()
+        filtered = initial_count - len(df)
+        if filtered > 0:
+            logger.info(f"Filtered out {filtered} samples without questions ({filtered/initial_count*100:.1f}%)")
+        
+        # Filter out samples with missing documents (needed for grounded labeling)
+        before = len(df)
+        df = df[df['documents'].notna() & (df['documents'].str.strip() != '')].copy()
+        doc_filtered = before - len(df)
+        if doc_filtered > 0:
+            logger.info(f"Filtered out {doc_filtered} samples without documents")
+        
+        logger.info(f"HalluMix dataset after filtering: {len(df)} samples (from {initial_count} original)")
+        
         return df
 
 

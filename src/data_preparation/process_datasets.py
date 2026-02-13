@@ -58,9 +58,31 @@ def process_dataset(domain: str, output_dir: str = "data/processed", limit: int 
     dataset_config = config['datasets'][domain]
     domain_name = dataset_config['domain']
     
-    df['formatted_prompt'] = df['prompt'].apply(
-        lambda x: formatter.format_prompt(x, domain_name)
-    )
+    # For medicine domain with MCQ format, pass options to formatter
+    if domain == 'medicine' and 'options' in df.columns:
+        import ast
+        df['formatted_prompt'] = df.apply(
+            lambda row: formatter.format_prompt(
+                row['prompt'], 
+                domain_name, 
+                options=ast.literal_eval(row['options']) if isinstance(row['options'], str) else row['options']
+            ),
+            axis=1
+        )
+    # For document-grounded domains (is_agents, finance), include documents as context
+    elif domain in ['is_agents', 'finance'] and 'documents' in df.columns:
+        df['formatted_prompt'] = df.apply(
+            lambda row: formatter.format_prompt(
+                row['prompt'],
+                domain_name,
+                documents=row.get('documents', '')
+            ),
+            axis=1
+        )
+    else:
+        df['formatted_prompt'] = df['prompt'].apply(
+            lambda x: formatter.format_prompt(x, domain_name)
+        )
     
     # NOTE: Train/test split now happens AFTER labeling (in label_responses.py)
     # This enables proper stratification on actual hallucination labels
@@ -69,7 +91,7 @@ def process_dataset(domain: str, output_dir: str = "data/processed", limit: int 
     
     full_df = df
     
-    # Select important columns (existing_label for HalluMix / is_agents)
+    # Select important columns
     output_columns = [
         'prompt_id',
         'domain',
@@ -77,7 +99,10 @@ def process_dataset(domain: str, output_dir: str = "data/processed", limit: int 
         'prompt',
         'formatted_prompt',
         'ground_truth',
-        'existing_label',  # Preserve for is_agents (HalluMix has pre-existing labels)
+        'documents',  # Preserve for is_agents (document-grounded labeling)
+        'existing_label',  # Preserve for is_agents (HalluMix pre-existing labels, kept for reference)
+        'options',  # Preserve for medicine (MCQ format)
+        'correct_index',  # Preserve for medicine (MCQ exact-match labeling)
         'split'
     ]
     

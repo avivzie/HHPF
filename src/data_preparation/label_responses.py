@@ -50,6 +50,9 @@ def label_all_responses(
     df = pd.read_csv(processed_csv)
     logger.info(f"Loaded {len(df)} samples from {processed_csv}")
     
+    # NOTE: "None of the above" filtering now happens at preprocess stage (MedicineLoader)
+    # for medicine domain, so all samples here are already filtered
+    
     # Get labeler for domain
     labeler = get_labeler(domain)
     
@@ -79,15 +82,21 @@ def label_all_responses(
             else:
                 primary_response = str(responses)
             
-            # Label the response (pass existing_label for is_agents / HalluMix)
+            # Label the response with domain-specific kwargs
             label_kwargs = {
                 'response': primary_response,
                 'ground_truth': row['ground_truth'],
                 'domain': domain,
                 'prompt': row['prompt']
             }
+            # Pass documents for is_agents (document-grounded labeling)
+            if 'documents' in row.index and pd.notna(row.get('documents')):
+                label_kwargs['documents'] = row['documents']
+            # Pass existing_label for reference (kept for backward compatibility)
             if 'existing_label' in row.index and pd.notna(row.get('existing_label')):
                 label_kwargs['existing_label'] = int(row['existing_label'])
+            if 'correct_index' in row.index and pd.notna(row.get('correct_index')):
+                label_kwargs['correct_index'] = int(row['correct_index'])
             label_result = labeler.label_response(**label_kwargs)
             
             # Create record

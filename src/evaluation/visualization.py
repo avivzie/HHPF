@@ -4,6 +4,8 @@ Visualization for HHPF evaluation results.
 Generates publication-quality figures for thesis.
 """
 
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend for file-only output
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np

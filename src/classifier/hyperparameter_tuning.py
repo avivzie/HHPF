@@ -75,10 +75,25 @@ class HyperparameterTuner:
                 min(search_space.get('colsample_bytree', [0.7, 0.9])),
                 max(search_space.get('colsample_bytree', [0.7, 0.9]))
             ),
+            'gamma': trial.suggest_float(
+                'gamma',
+                min(search_space.get('gamma', [0, 5])),
+                max(search_space.get('gamma', [0, 5]))
+            ),
+            'reg_alpha': trial.suggest_float(
+                'reg_alpha',
+                min(search_space.get('reg_alpha', [0, 5])),
+                max(search_space.get('reg_alpha', [0, 5]))
+            ),
+            'reg_lambda': trial.suggest_float(
+                'reg_lambda',
+                min(search_space.get('reg_lambda', [1, 10])),
+                max(search_space.get('reg_lambda', [1, 10]))
+            ),
             'objective': 'binary:logistic',
             'eval_metric': 'auc',
             'random_state': 42,
-            'n_jobs': -1
+            'n_jobs': 1
         }
         
         # Calculate scale_pos_weight
@@ -89,15 +104,18 @@ class HyperparameterTuner:
         # Create model
         model = xgb.XGBClassifier(**params)
         
-        # Cross-validation
+        # Cross-validation (adapt folds for small datasets)
         cv_folds = self.tuning_config.get('cv_folds', 5)
+        # Use fewer folds for small datasets (min 10 samples per fold)
+        cv_folds = min(cv_folds, len(y) // 10)
+        cv_folds = max(2, cv_folds)  # At least 2 folds
         cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
         
         scores = cross_val_score(
             model, X, y,
             cv=cv,
             scoring='roc_auc',
-            n_jobs=-1
+            n_jobs=1  # Single-threaded to avoid joblib/loky PermissionError in constrained environments
         )
         
         return scores.mean()

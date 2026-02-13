@@ -30,6 +30,8 @@ class FeatureAggregator:
         # Initialize shared calculators (lazy load on first use)
         self.entropy_calc = None
         self.energy_calc = None
+        self.knowledge_calc = None
+        self.complexity_calc = None
     
     def extract_features_for_prompt(
         self,
@@ -88,8 +90,23 @@ class FeatureAggregator:
         
         # Contextual features
         try:
-            contextual_features = extract_contextual_features(prompt)
-            features.update(contextual_features)
+            # Lazy initialize contextual calculators on first use
+            if self.knowledge_calc is None:
+                logger.info("Initializing KnowledgePopularityCalculator (one-time)")
+                from src.features.contextual_features import KnowledgePopularityCalculator
+                self.knowledge_calc = KnowledgePopularityCalculator()
+            
+            if self.complexity_calc is None:
+                logger.info("Initializing PromptComplexityCalculator (one-time)")
+                from src.features.contextual_features import PromptComplexityCalculator
+                self.complexity_calc = PromptComplexityCalculator()
+            
+            # Use shared calculators instead of creating new ones
+            knowledge_features = self.knowledge_calc.calculate_knowledge_popularity(prompt)
+            complexity_features = self.complexity_calc.calculate_prompt_complexity(prompt)
+            
+            features.update(knowledge_features)
+            features.update(complexity_features)
         except Exception as e:
             logger.warning(f"Failed to extract contextual features for {prompt_id}: {e}")
             features.update({

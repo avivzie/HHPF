@@ -20,14 +20,15 @@ datasets:
     description: "Grade school math word problems with numerical answers"
     
   finance:
-    name: "FinanceBench"
+    name: "TAT-QA"
     domain: "Finance"
-    file_path: "data/raw/financebench_sample_150.csv"
+    file_path: "data/raw/tatqa.csv"
     prompt_column: "question"
     answer_column: "answer"
-    ground_truth_method: "numerical_accuracy"
-    description: "Financial Q&A with numerical and factual answers"
-    tolerance: 0.10  # 10% tolerance for financial metrics (accounts for rounding, different sources)
+    documents_column: "context"
+    ground_truth_method: "document_grounded"
+    description: "Tabular and textual financial Q&A with source documents (tables + paragraphs)"
+    has_labels: false  # Labels computed by comparing LLM response to source documents
     
   is_agents:
     name: "HalluMix"
@@ -35,9 +36,10 @@ datasets:
     file_path: "data/raw/hallumix.csv"
     prompt_column: "question"
     answer_column: "answer"
-    ground_truth_method: "use_existing_labels"
-    description: "Autonomous agent scenarios with pre-labeled hallucinations"
-    has_labels: true  # Dataset already has hallucination_label column
+    documents_column: "documents"
+    ground_truth_method: "document_grounded"
+    description: "Document-grounded QA with hallucination detection against source documents"
+    has_labels: false  # Labels are now computed by comparing LLM response to source documents
     
   psychology:
     name: "TruthfulQA"

@@ -157,6 +157,11 @@ class ResponseGenerator:
         results = []
         start_time = time.time()
         
+        # Create labeler ONCE outside the loop to reuse the sentence-transformers model
+        domain = df['domain_key'].iloc[0]  # Get domain from first row
+        labeler = get_labeler(domain)
+        logger.info(f"✓ Labeler initialized for domain: {domain}")
+        
         for idx, row in tqdm(df.iterrows(), total=len(df), desc="Generating responses"):
             prompt_id = row['prompt_id']
             prompt = row['formatted_prompt']
@@ -194,29 +199,27 @@ class ResponseGenerator:
             # Extract primary response (first sample)
             primary_response = samples[0]['text']
             
-            # Label response
-            labeler = get_labeler(domain)
+            # Label response (using the shared labeler instance)
             
-            # Check if dataset has existing labels (e.g., HalluMix)
+            # Build labeler kwargs with domain-specific fields
+            label_kwargs = {
+                'prompt': prompt,
+            }
+            # Pass documents for is_agents (document-grounded labeling)
+            documents = row.get('documents', None)
+            if documents is not None and pd.notna(documents):
+                label_kwargs['documents'] = documents
+            # Pass existing_label for backward compatibility
             existing_label = row.get('existing_label', None)
+            if existing_label is not None and pd.notna(existing_label):
+                label_kwargs['existing_label'] = int(existing_label)
             
-            if existing_label is not None:
-                # Use existing label for datasets that have them
-                label_result = labeler.label_response(
-                    primary_response,
-                    ground_truth,
-                    domain,
-                    prompt=prompt,
-                    existing_label=existing_label
-                )
-            else:
-                # Generate label by comparing response to ground truth
-                label_result = labeler.label_response(
-                    primary_response,
-                    ground_truth,
-                    domain,
-                    prompt=prompt
-                )
+            label_result = labeler.label_response(
+                primary_response,
+                ground_truth,
+                domain,
+                **label_kwargs
+            )
             
             # Collect result
             result = {
@@ -224,7 +227,7 @@ class ResponseGenerator:
                 'domain': domain,
                 'prompt': prompt,
                 'ground_truth': ground_truth,
-                'split': row['split'],  # Preserve train/test split
+                'split': row.get('split', None),  # Preserve split if exists, else None
                 'primary_response': primary_response,
                 'num_samples': len(samples),
                 'hallucination_label': label_result['hallucination_label'],

@@ -74,7 +74,26 @@ class PromptFormatter:
             return question
     
     def _format_medical(self, question: str, **kwargs) -> str:
-        """Format medical question prompt."""
+        """Format medical question prompt with MCQ options."""
+        options = kwargs.get('options')
+        
+        # If MCQ options provided, format as multiple choice
+        if options and isinstance(options, dict):
+            # Extract only numeric keys (0, 1, 2, 3) and ignore 'correct answer' key
+            numeric_options = {k: v for k, v in options.items() if k.isdigit()}
+            
+            # Format as A/B/C/D
+            prompt = "Answer the following medical question by selecting the correct option (A, B, C, or D). Reply with ONLY the letter of the correct answer.\n\n"
+            prompt += f"Question: {question}\n"
+            
+            for key in sorted(numeric_options.keys(), key=int):
+                letter = chr(65 + int(key))  # 0->A, 1->B, 2->C, 3->D
+                prompt += f"{letter}) {numeric_options[key]}\n"
+            
+            prompt += "\nAnswer:"
+            return prompt
+        
+        # Fallback to free-text format (for backward compatibility)
         if self.template_style == "simple":
             return question
         elif self.template_style == "instruction":
@@ -87,7 +106,25 @@ class PromptFormatter:
             return question
     
     def _format_finance(self, question: str, **kwargs) -> str:
-        """Format financial question prompt."""
+        """
+        Format financial question prompt with document-grounded context.
+        
+        TAT-QA and other financial datasets are document-grounded. The prompt includes
+        the source documents (tables + text) as context so the LLM answers based on
+        provided evidence. This enables proper hallucination detection.
+        """
+        documents = kwargs.get('documents', '')
+        
+        if documents:
+            return (
+                f"Answer the following question based ONLY on the provided context. "
+                f"Be concise and accurate.\n\n"
+                f"Context: {documents}\n\n"
+                f"Question: {question}\n\n"
+                f"Answer:"
+            )
+        
+        # Fallback if no documents provided (FinanceBench without context)
         if self.template_style == "simple":
             return question
         elif self.template_style == "instruction":
@@ -100,7 +137,25 @@ class PromptFormatter:
             return question
     
     def _format_is_agents(self, question: str, **kwargs) -> str:
-        """Format IS/agents question prompt."""
+        """
+        Format IS/agents question prompt with document-grounded context.
+        
+        HalluMix is a document-grounded QA dataset. The prompt includes the
+        source documents as context so the LLM answers based on provided evidence.
+        This enables proper hallucination detection (response vs. source documents).
+        """
+        documents = kwargs.get('documents', '')
+        
+        if documents:
+            return (
+                f"Answer the following question based ONLY on the provided context. "
+                f"Be concise and accurate.\n\n"
+                f"Context: {documents}\n\n"
+                f"Question: {question}\n\n"
+                f"Answer:"
+            )
+        
+        # Fallback if no documents provided
         if self.template_style == "simple":
             return question
         elif self.template_style == "instruction":
