@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-02-13T18:00:00Z",
+  "status": "FAIL",
+  "domains": {
+    "finance": [
+      {
+        "type": "NaN values in features",
+        "severity": "HIGH",
+        "details": {
+          "ground_truth": 
