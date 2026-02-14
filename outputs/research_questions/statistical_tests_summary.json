@@ -1,0 +1,108 @@
+{
+  "rq1": {
+    "test": "RQ1: Paired t-test (Semantic+Context vs Naive-Only)",
+    "hybrid_mean": 0.6781738581583787,
+    "naive_mean": 0.5619539249039249,
+    "mean_improvement": 0.11621993325445382,
+    "std_improvement": 0.11539181022076425,
+    "t_statistic": 2.2521153849676208,
+    "p_value": 0.08744010254009409,
+    "cohen_d": 1.0071766187921416,
+    "significant": 0,
+    "domains": [
+      "math",
+      "is_agents",
+      "psychology",
+      "medicine",
+      "finance"
+    ],
+    "hybrid_aurocs": [
+      0.7616438356164383,
+      0.6903409090909092,
+      0.6810666666666667,
+      0.6284,
+      0.6294178794178795
+    ],
+    "naive_aurocs": [
+      0.5,
+      0.7054924242424242,
+      0.5141333333333333,
+      0.4732,
+      0.616943866943867
+    ]
+  },
+  "rq2": {
+    "test": "RQ2: Paired t-test (Semantic-Only vs Naive-Only, one-tailed)",
+    "semantic_mean": 0.6053546370616918,
+    "naive_mean": 0.5619539249039249,
+    "mean_improvement": 0.04340071215776696,
+    "std_improvement": 0.13892754571846047,
+    "t_statistic": 0.6985435620761352,
+    "p_value_one_tailed": 0.26165944127638274,
+    "cohen_d": 0.3123981780094165,
+    "significant": 0,
+    "domains": [
+      "math",
+      "is_agents",
+      "psychology",
+      "medicine",
+      "finance"
+    ],
+    "semantic_aurocs": [
+      0.7215264187866928,
+      0.5402462121212122,
+      0.5810666666666667,
+      0.5462,
+      0.6377338877338877
+    ],
+    "naive_aurocs": [
+      0.5,
+      0.7054924242424242,
+      0.5141333333333333,
+      0.4732,
+      0.616943866943867
+    ]
+  },
+  "rq3a": {
+    "test": "RQ3a: Chi-square test (hallucination rate differences)",
+    "chi_square": 614.6436864179635,
+    "p_value": 1.0491162636568459e-131,
+    "degrees_of_freedom": 4,
+    "significant": 1,
+    "domains": [
+      "math",
+      "is_agents",
+      "psychology",
+      "medicine",
+      "finance"
+    ],
+    "contingency_table": [
+      [
+        157,
+        385
+      ],
+      [
+        439,
+        61
+      ],
+      [
+        125,
+        375
+      ],
+      [
+        248,
+        252
+      ],
+      [
+        369,
+        131
+      ]
+    ]
+  },
+  "rq3c": {
+    "test": "RQ3c: Feature importance variability analysis",
+    "total_features": 41,
+    "high_variance_count": 26,
+    "low_variance_count": 12
+  }
+}

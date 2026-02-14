@@ -1,0 +1,6 @@
+domain,hallucinations,faithful,total,hallucination_rate
+math,157,385,542,0.2896678966789668
+is_agents,439,61,500,0.878
+psychology,125,375,500,0.25
+medicine,248,252,500,0.496
+finance,369,131,500,0.738
