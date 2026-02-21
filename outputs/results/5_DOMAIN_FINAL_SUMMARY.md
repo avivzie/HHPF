@@ -2,6 +2,7 @@
 
 **Research Project:** Hybrid Hallucination Prediction Framework  
 **Completion Date:** February 14, 2026  
+**Updated:** February 21, 2026 (cross-validation + confidence intervals + multiple comparison corrections)  
 **Status:** ✅ Complete and Thesis-Ready
 
 ---
@@ -36,25 +37,45 @@ Successfully completed hallucination detection analysis across **5 diverse domai
 - **Most Challenging:** Medicine (0.619 AUROC) - complex medical reasoning
 - **AUROC Range:** 0.178 spread (0.619-0.797) indicates domain-specific difficulty
 
+### Cross-Validated Results (5-Fold Stratified)
+
+All models were also evaluated with 5-fold stratified cross-validation on the full dataset. CV estimates confirm robustness of single-split results.
+
+| Domain | AUROC (CV) | Accuracy (CV) | Precision (CV) | Recall (CV) | F1 (CV) |
+|--------|------------|---------------|----------------|-------------|---------|
+| Math | 0.750 ± 0.055 | 0.788 ± 0.042 | 0.655 ± 0.083 | 0.586 ± 0.077 | 0.616 ± 0.066 |
+| IS Agents | 0.613 ± 0.064 | 0.808 ± 0.039 | 0.891 ± 0.014 | 0.891 ± 0.049 | 0.890 ± 0.025 |
+| Psychology | 0.659 ± 0.047 | 0.734 ± 0.030 | 0.465 ± 0.073 | 0.392 ± 0.052 | 0.425 ± 0.058 |
+| Medicine | 0.633 ± 0.043 | 0.606 ± 0.061 | 0.605 ± 0.063 | 0.597 ± 0.055 | 0.601 ± 0.058 |
+| Finance | 0.677 ± 0.059 | 0.696 ± 0.063 | 0.800 ± 0.037 | 0.783 ± 0.067 | 0.791 ± 0.047 |
+| **Mean ± SD** | **0.666 ± 0.052** | **0.726 ± 0.081** | **0.683 ± 0.167** | **0.650 ± 0.194** | **0.664 ± 0.181** |
+
+**Interpretation:** Cross-validated AUROC means are within ~2–5% of single-split estimates for most domains, supporting that results are not driven by a lucky/unlucky split. Single-split and CV conclusions align.
+
 ---
 
 ## Research Questions: Statistical Results
 
 ### RQ1: Do hybrid features (Semantic+Context) outperform baselines?
 
-**Result:** **PARTIAL SUPPORT** (p = 0.087, trend-level with large effect size)
+**Result:** **PARTIAL SUPPORT** (large practical effect; not statistically significant after multiple comparison correction)
 
-**Statistical Test:** Paired t-test (two-tailed, n=5 domains)
+**Statistical Test:** Paired t-test (two-tailed, n=5 domains). Multiple comparison correction applied over 3 primary tests (RQ1, RQ2, RQ3a).
 
 | Metric | Value |
 |--------|-------|
 | Semantic+Context AUROC | 0.678 ± 0.055 |
 | Naive-Only AUROC | 0.562 ± 0.097 |
 | Mean Improvement | +0.116 (+20.7%) |
+| **95% CI (mean improvement)** | **[-0.027, 0.259]** |
 | t-statistic | 2.252 |
-| p-value | 0.087 |
+| p-value (raw) | 0.087 |
+| p-value (Bonferroni) | 0.262 |
+| p-value (FDR) | 0.131 |
 | Cohen's d | 1.007 (large) |
-| Interpretation | Strong practical effect, borderline significance |
+| Significant (raw α=0.05) | No |
+| Significant (Bonferroni) | No |
+| Significant (FDR) | No |
 
 **Per-Domain Breakdown:**
 
@@ -66,25 +87,29 @@ Successfully completed hallucination detection analysis across **5 diverse domai
 | Finance | 0.629 | 0.617 | +0.013 ✅ |
 | IS Agents | 0.690 | 0.705 | -0.015 ❌ |
 
-**Interpretation:** Hybrid features show consistent positive trends (4/5 domains) with a large effect size. The borderline p-value (0.087) suggests practical importance despite not reaching conventional significance threshold.
+**Interpretation:** Hybrid features show consistent positive trends (4/5 domains) with a large effect size (Cohen's d = 1.007). The raw p-value (0.087) is borderline, but does not survive Bonferroni or FDR correction for multiple comparisons. The 95% CI for the mean improvement includes zero ([-0.027, 0.259]), so statistical significance is not achieved. The large effect size and consistent direction across domains suggest **practical importance** worthy of reporting and further investigation.
 
 ---
 
 ### RQ2: Does semantic uncertainty outperform naive confidence?
 
-**Result:** **NOT SUPPORTED** (p = 0.262)
+**Result:** **NOT SUPPORTED** (p = 0.262; not significant before or after correction)
 
-**Statistical Test:** Paired t-test (one-tailed: Semantic > Naive, n=5 domains)
+**Statistical Test:** Paired t-test (one-tailed: Semantic > Naive, n=5 domains). Multiple comparison correction applied (Bonferroni, FDR).
 
 | Metric | Value |
 |--------|-------|
 | Semantic-Only AUROC | 0.605 ± 0.076 |
 | Naive-Only AUROC | 0.562 ± 0.097 |
 | Mean Improvement | +0.043 (+7.7%) |
+| **95% CI (mean improvement)** | **[-0.129, 0.216]** |
 | t-statistic | 0.699 |
-| p-value (one-tailed) | 0.262 |
+| p-value (one-tailed, raw) | 0.262 |
+| p-value (Bonferroni) | 0.785 |
+| p-value (FDR) | 0.262 |
 | Cohen's d | 0.312 (small-medium) |
-| Interpretation | Modest effect, not statistically significant |
+| Significant (raw) | No |
+| Significant (Bonferroni/FDR) | No |
 
 **Per-Domain Breakdown:**
 
@@ -108,24 +133,26 @@ Successfully completed hallucination detection analysis across **5 diverse domai
 
 #### RQ3a: Hallucination Rate Differences
 
-**Test:** Chi-square test of independence
+**Test:** Chi-square test of independence. Multiple comparison correction: p remains < 0.001 after Bonferroni/FDR.
 
 | Metric | Value |
 |--------|-------|
 | Chi-square statistic | 614.64 |
-| p-value | < 0.001 |
+| p-value (raw) | < 0.001 |
+| p-value (Bonferroni) | < 0.001 |
+| p-value (FDR) | < 0.001 |
 | Degrees of freedom | 4 |
 | Interpretation | **Highly significant** |
 
-**Hallucination Rates by Domain:**
+**Hallucination Rates by Domain (with 95% CIs):**
 
-| Domain | Hallucinations | Faithful | Total | Rate |
-|--------|----------------|----------|-------|------|
-| Psychology | 125 | 375 | 500 | 25.0% |
-| Math | 157 | 385 | 542 | 29.0% |
-| Medicine | 248 | 252 | 500 | 49.6% |
-| Finance | 369 | 131 | 500 | 73.8% |
-| IS Agents | 439 | 61 | 500 | 87.8% |
+| Domain | Hallucinations | Faithful | Total | Rate | 95% CI |
+|--------|----------------|----------|-------|------|--------|
+| Psychology | 125 | 375 | 500 | 25.0% | [21.2%, 28.8%] |
+| Math | 157 | 385 | 542 | 29.0% | [25.1%, 32.8%] |
+| Medicine | 248 | 252 | 500 | 49.6% | [45.2%, 54.0%] |
+| Finance | 369 | 131 | 500 | 73.8% | [69.9%, 77.7%] |
+| IS Agents | 439 | 61 | 500 | 87.8% | [84.9%, 90.7%] |
 
 **Range:** 25.0% to 87.8% - **3.5× difference!**
 
@@ -231,7 +258,7 @@ Successfully completed hallucination detection analysis across **5 diverse domai
 
 ✅ **No cross-domain contamination** - Each domain analyzed independently  
 ✅ **Fair comparisons** - Same XGBoost config for all feature subsets  
-✅ **Statistical rigor** - Proper paired tests, actual p-values reported  
+✅ **Statistical rigor** - Paired tests, 95% CIs, Bonferroni/FDR correction for multiple comparisons (3 primary tests)  
 ✅ **Reproducible** - Fixed random seeds (random_state=42)  
 ✅ **No arbitrary thresholds** - Data-driven conclusions  
 ✅ **Comprehensive** - 30 models trained with full evaluation
@@ -295,12 +322,14 @@ Successfully completed hallucination detection analysis across **5 diverse domai
 
 ## Statistical Test Summary
 
-| Test | Comparison | t/χ² | p-value | Effect Size | Result |
-|------|-----------|------|---------|-------------|--------|
-| RQ1 | Hybrid vs Naive | 2.252 | 0.087 | d=1.007 | Trend-level |
-| RQ2 | Semantic vs Naive | 0.699 | 0.262 | d=0.312 | Not significant |
-| RQ3a | Rate Differences | 614.64 | <0.001 | - | **Significant** |
-| RQ3c | Feature Variance | - | - | 63% high-CV | **Supported** |
+| Test | Comparison | t/χ² | p (raw) | p (Bonferroni) | p (FDR) | 95% CI | Effect Size | Result |
+|------|-----------|------|---------|----------------|---------|--------|-------------|--------|
+| RQ1 | Hybrid vs Naive | 2.252 | 0.087 | 0.262 | 0.131 | [-0.027, 0.259] | d=1.007 | Large effect, not sig. after correction |
+| RQ2 | Semantic vs Naive | 0.699 | 0.262 | 0.785 | 0.262 | [-0.129, 0.216] | d=0.312 | Not significant |
+| RQ3a | Rate Differences | 614.64 | <0.001 | <0.001 | <0.001 | per-domain CIs | - | **Significant** |
+| RQ3c | Feature Variance | - | - | - | - | - | 63% high-CV | **Supported** |
+
+*Multiple comparison context:* 3 primary tests (RQ1, RQ2, RQ3a); Bonferroni α = 0.05/3 ≈ 0.017.
 
 **Honest Interpretation:**
 - RQ1: Large practical effect but borderline statistical significance (needs more domains)

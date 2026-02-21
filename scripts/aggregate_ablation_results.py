@@ -53,23 +53,33 @@ def aggregate_ablation_results(ablation_dir: str, output_dir: str):
     # Combine all results
     combined_df = pd.concat(all_results, ignore_index=True)
     logger.info(f"\nTotal records: {len(combined_df)} across {len(all_results)} domains")
-    
-    # Aggregate by feature subset
-    logger.info("\nAggregating by feature subset...")
-    
-    aggregated = combined_df.groupby('feature_subset').agg({
-        'n_features': 'first',  # Should be same across domains
+
+    has_cv = 'auroc_cv_mean' in combined_df.columns
+
+    # Base aggregation (single-split)
+    agg_dict = {
+        'n_features': 'first',
         'auroc': ['mean', 'std', 'min', 'max', 'count'],
         'accuracy': ['mean', 'std'],
         'precision': ['mean', 'std'],
         'recall': ['mean', 'std'],
         'f1': ['mean', 'std']
-    }).reset_index()
-    
+    }
+    if has_cv:
+        agg_dict.update({
+            'auroc_cv_mean': ['mean', 'std'],
+            'accuracy_cv_mean': ['mean', 'std'],
+            'precision_cv_mean': ['mean', 'std'],
+            'recall_cv_mean': ['mean', 'std'],
+            'f1_cv_mean': ['mean', 'std'],
+        })
+
+    aggregated = combined_df.groupby('feature_subset').agg(agg_dict).reset_index()
+
     # Flatten column names
-    aggregated.columns = ['_'.join(col).strip('_') if col[1] else col[0] 
+    aggregated.columns = ['_'.join(col).strip('_') if col[1] else col[0]
                           for col in aggregated.columns.values]
-    
+
     # Rename for clarity
     aggregated = aggregated.rename(columns={
         'n_features_first': 'n_features',
@@ -79,8 +89,7 @@ def aggregate_ablation_results(ablation_dir: str, output_dir: str):
         'auroc_min': 'auroc_min',
         'auroc_max': 'auroc_max'
     })
-    
-    # Reorder columns
+
     column_order = [
         'feature_subset', 'n_domains', 'n_features',
         'auroc_mean', 'auroc_std', 'auroc_min', 'auroc_max',
@@ -89,28 +98,62 @@ def aggregate_ablation_results(ablation_dir: str, output_dir: str):
         'recall_mean', 'recall_std',
         'f1_mean', 'f1_std'
     ]
-    aggregated = aggregated[column_order]
-    
-    # Sort by AUROC (descending)
+    if has_cv:
+        aggregated = aggregated.rename(columns={
+            'auroc_cv_mean_mean': 'auroc_cv_avg',
+            'auroc_cv_mean_std': 'auroc_cv_std_avg',
+            'accuracy_cv_mean_mean': 'accuracy_cv_avg',
+            'accuracy_cv_mean_std': 'accuracy_cv_std_avg',
+            'precision_cv_mean_mean': 'precision_cv_avg',
+            'precision_cv_mean_std': 'precision_cv_std_avg',
+            'recall_cv_mean_mean': 'recall_cv_avg',
+            'recall_cv_mean_std': 'recall_cv_std_avg',
+            'f1_cv_mean_mean': 'f1_cv_avg',
+            'f1_cv_mean_std': 'f1_cv_std_avg',
+        })
+        column_order.extend([
+            'auroc_cv_avg', 'auroc_cv_std_avg',
+            'accuracy_cv_avg', 'accuracy_cv_std_avg',
+            'precision_cv_avg', 'precision_cv_std_avg',
+            'recall_cv_avg', 'recall_cv_std_avg',
+            'f1_cv_avg', 'f1_cv_std_avg'
+        ])
+
+    aggregated = aggregated[[c for c in column_order if c in aggregated.columns]]
     aggregated = aggregated.sort_values('auroc_mean', ascending=False)
-    
-    # Save aggregated results
+
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     output_path = Path(output_dir) / 'rq1_rq2_aggregated_results.csv'
     aggregated.to_csv(output_path, index=False)
-    
+
     logger.info(f"\n{'='*80}")
     logger.info("AGGREGATION COMPLETE")
     logger.info(f"{'='*80}")
     logger.info(f"\nResults saved to {output_path}")
     logger.info("\nAggregated Results:")
     logger.info("\n" + aggregated[['feature_subset', 'n_domains', 'auroc_mean', 'auroc_std']].to_string(index=False))
-    
-    # Also save per-domain breakdown
+
+    # CV comparison: single-split vs CV per domain
+    if has_cv:
+        comparison_rows = []
+        for _, row in combined_df.iterrows():
+            comparison_rows.append({
+                'domain': row['domain'],
+                'feature_subset': row['feature_subset'],
+                'auroc_single': row['auroc'],
+                'auroc_cv_mean': row['auroc_cv_mean'],
+                'auroc_cv_std': row['auroc_cv_std'],
+                'auroc_diff': row['auroc'] - row['auroc_cv_mean'],
+            })
+        comparison_df = pd.DataFrame(comparison_rows)
+        comparison_path = Path(output_dir) / 'rq1_rq2_cv_comparison.csv'
+        comparison_df.to_csv(comparison_path, index=False)
+        logger.info(f"\nCV comparison saved to {comparison_path}")
+
     per_domain_path = Path(output_dir) / 'per_domain_ablation_breakdown.csv'
     combined_df.to_csv(per_domain_path, index=False)
     logger.info(f"\nPer-domain breakdown saved to {per_domain_path}")
-    
+
     return aggregated, combined_df
 
 

@@ -32,9 +32,10 @@ import logging
 from pathlib import Path
 import xgboost as xgb
 from sklearn.metrics import (
-    roc_auc_score, accuracy_score, precision_score, 
+    roc_auc_score, accuracy_score, precision_score,
     recall_score, f1_score
 )
+from sklearn.model_selection import StratifiedKFold
 
 # Import HHPF modules
 import sys
@@ -126,6 +127,76 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, random_state=42):
     return metrics, model, y_pred, y_pred_proba
 
 
+def cross_validate_model(X, y, random_state=42, n_folds=5):
+    """
+    Perform 5-fold stratified cross-validation.
+    Uses same XGBoost config as train_and_evaluate(); scale_pos_weight computed per fold.
+
+    Args:
+        X: Full feature matrix (float)
+        y: Full labels (0/1)
+        random_state: Random seed
+        n_folds: Number of folds (default 5)
+
+    Returns:
+        dict with *_cv_mean and *_cv_std for auroc, accuracy, precision, recall, f1
+    """
+    cv = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+    aurocs, accs, precs, recs, f1s = [], [], [], [], []
+
+    for train_idx, test_idx in cv.split(X, y):
+        X_tr, X_te = X[train_idx], X[test_idx]
+        y_tr, y_te = y[train_idx], y[test_idx]
+        pos_count = y_tr.sum()
+        neg_count = len(y_tr) - pos_count
+        scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
+
+        params = {
+            'objective': 'binary:logistic',
+            'eval_metric': 'auc',
+            'random_state': random_state,
+            'n_estimators': 100,
+            'max_depth': 6,
+            'learning_rate': 0.1,
+            'scale_pos_weight': scale_pos_weight,
+            'tree_method': 'hist',
+            'verbosity': 0,
+        }
+        model = xgb.XGBClassifier(**params)
+        model.fit(X_tr, y_tr, verbose=False)
+        y_pred = model.predict(X_te)
+        y_proba = model.predict_proba(X_te)[:, 1]
+
+        aurocs.append(roc_auc_score(y_te, y_proba))
+        accs.append(accuracy_score(y_te, y_pred))
+        precs.append(precision_score(y_te, y_pred, zero_division=0))
+        recs.append(recall_score(y_te, y_pred, zero_division=0))
+        f1s.append(f1_score(y_te, y_pred, zero_division=0))
+
+    def mean_std(vals):
+        arr = np.array(vals)
+        return float(np.mean(arr)), float(np.std(arr, ddof=1)) if len(vals) > 1 else (float(np.mean(arr)), 0.0)
+
+    auroc_mean, auroc_std = mean_std(aurocs)
+    acc_mean, acc_std = mean_std(accs)
+    prec_mean, prec_std = mean_std(precs)
+    rec_mean, rec_std = mean_std(recs)
+    f1_mean, f1_std = mean_std(f1s)
+
+    return {
+        'auroc_cv_mean': auroc_mean,
+        'auroc_cv_std': auroc_std,
+        'accuracy_cv_mean': acc_mean,
+        'accuracy_cv_std': acc_std,
+        'precision_cv_mean': prec_mean,
+        'precision_cv_std': prec_std,
+        'recall_cv_mean': rec_mean,
+        'recall_cv_std': rec_std,
+        'f1_cv_mean': f1_mean,
+        'f1_cv_std': f1_std,
+    }
+
+
 def convert_numpy_to_json(obj):
     """Convert numpy types to Python types for JSON serialization."""
     if isinstance(obj, np.ndarray):
@@ -189,12 +260,16 @@ def train_domain(domain: str, features_path: str, output_dir: str, models_dir: s
     logger.info(f"\nFeature subsets:")
     for name, features in feature_subsets.items():
         logger.info(f"  {name}: {len(features)} features")
-    
+
+    # Full dataset for cross-validation (train + test combined)
+    full_df = df
+    y_full = full_df['hallucination_label'].values
+
     # Train all feature subsets
     ablation_results = []
     full_model = None
     full_model_features = None
-    
+
     for subset_name, subset_features in feature_subsets.items():
         logger.info(f"\n{'='*60}")
         logger.info(f"Training: {subset_name}")
@@ -218,28 +293,35 @@ def train_domain(domain: str, features_path: str, output_dir: str, models_dir: s
         y_train = train_df['hallucination_label'].values
         X_test = test_df[available_features].values
         y_test = test_df['hallucination_label'].values
-        
-        # Train and evaluate
+        X_full = full_df[available_features].values
+
+        # Train and evaluate (single split)
         try:
             metrics, model, y_pred, y_pred_proba = train_and_evaluate(X_train, y_train, X_test, y_test)
-            
-            logger.info(f"Results:")
+
+            # 5-fold cross-validation on full dataset
+            cv_results = cross_validate_model(X_full, y_full, random_state=42, n_folds=5)
+
+            logger.info(f"Results (single split):")
             logger.info(f"  AUROC:     {metrics['auroc']:.4f}")
             logger.info(f"  Accuracy:  {metrics['accuracy']:.4f}")
             logger.info(f"  Precision: {metrics['precision']:.4f}")
             logger.info(f"  Recall:    {metrics['recall']:.4f}")
             logger.info(f"  F1 Score:  {metrics['f1']:.4f}")
-            
-            # Store results
-            ablation_results.append({
+            logger.info(f"Results (5-fold CV):   AUROC {cv_results['auroc_cv_mean']:.4f} ± {cv_results['auroc_cv_std']:.4f}")
+
+            # Store results (single-split + CV)
+            row = {
                 'feature_subset': subset_name,
                 'n_features': len(available_features),
                 'auroc': metrics['auroc'],
                 'accuracy': metrics['accuracy'],
                 'precision': metrics['precision'],
                 'recall': metrics['recall'],
-                'f1': metrics['f1']
-            })
+                'f1': metrics['f1'],
+            }
+            row.update(cv_results)
+            ablation_results.append(row)
             
             # Save Full model for later use
             if subset_name == 'Full':

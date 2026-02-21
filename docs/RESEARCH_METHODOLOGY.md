@@ -198,10 +198,26 @@ Evaluated at optimal threshold (maximizing F1 score):
 - Y-axis: Accuracy on retained predictions
 - AUC-ARC: Area under the curve (higher = better selective prediction)
 
+### Final Model Evaluation: Single-Split and Cross-Validation
+
+**Single-split (primary reporting):** Models are trained on the predefined train split and evaluated on the held-out test split (80/20, stratified, random_state=42). This matches standard practice for final performance reporting.
+
+**5-fold stratified cross-validation:** To address robustness of estimates, all ablation models are also evaluated with 5-fold stratified cross-validation on the full dataset (train + test combined). For each fold, the same XGBoost configuration is used; `scale_pos_weight` is computed from the fold’s training set. Reported CV metrics are the mean and standard deviation of AUROC, accuracy, precision, recall, and F1 across folds. Single-split and CV results are reported side by side; agreement between them supports that results are not driven by a single lucky/unlucky split.
+
 ### Statistical Testing
 
-**RQ1 & RQ2**: Pairwise AUROC comparisons with statistical significance tests
-**RQ3**: Chi-square test for domain differences in hallucination rates
+**RQ1 & RQ2:** Paired t-tests (two-tailed for RQ1, one-tailed for RQ2) on per-domain AUROC differences (n = 5 domains).  
+**RQ3a:** Chi-square test of independence for hallucination rates across domains.
+
+**Confidence intervals:** 95% confidence intervals are reported for all relevant quantities:
+- Mean AUROC difference (RQ1, RQ2) via t-distribution (df = n − 1)
+- Per-domain hallucination rates (RQ3a) via normal approximation for proportions
+
+**Multiple comparison correction:** Three primary tests are conducted (RQ1, RQ2, RQ3a). To control inflation of Type I error:
+- **Bonferroni:** Reject at α_corrected = 0.05/3 ≈ 0.017 (family-wise error rate)
+- **FDR (Benjamini–Hochberg):** False discovery rate control via `statsmodels.stats.multitest.multipletests` (method `fdr_bh`)
+
+All results report raw p-values plus Bonferroni- and FDR-adjusted p-values. Conclusions are stated with respect to both uncorrected and corrected thresholds.
 
 ---
 

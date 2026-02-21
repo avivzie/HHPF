@@ -7,6 +7,7 @@ RQ3a: Chi-square test (hallucination rate differences)
 RQ3c: Feature importance variability (coefficient of variation)
 """
 
+import json
 import pandas as pd
 import numpy as np
 import logging
@@ -18,6 +19,49 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Number of primary tests for multiple comparison correction (RQ1, RQ2, RQ3a)
+N_PRIMARY_TESTS = 3
+
+
+def calculate_confidence_interval(data, confidence=0.95):
+    """
+    Calculate confidence interval using t-distribution.
+    Returns: (mean, lower_bound, upper_bound)
+    """
+    data = np.asarray(data)
+    n = len(data)
+    if n < 2:
+        return float(np.mean(data)), float(np.mean(data)), float(np.mean(data))
+    mean = np.mean(data)
+    se = stats.sem(data)
+    ci = stats.t.interval(confidence, n - 1, loc=mean, scale=se)
+    return float(mean), float(ci[0]), float(ci[1])
+
+
+def bonferroni_correction(p_values, alpha=0.05):
+    """
+    Bonferroni correction: reject H0 if p < alpha/n.
+    Returns: (corrected_alpha, list of significance per test)
+    """
+    n = len(p_values)
+    corrected_alpha = alpha / n
+    reject = [p < corrected_alpha for p in p_values]
+    return corrected_alpha, reject
+
+
+def fdr_correction(p_values, alpha=0.05):
+    """
+    Benjamini-Hochberg FDR correction.
+    Returns: (p_corrected array, reject array)
+    """
+    try:
+        from statsmodels.stats.multitest import multipletests
+    except ImportError:
+        logger.warning("statsmodels not installed; FDR correction skipped. pip install statsmodels")
+        return list(p_values), [False] * len(p_values)
+    reject, p_corrected, _, _ = multipletests(p_values, alpha=alpha, method='fdr_bh')
+    return p_corrected.tolist(), reject.tolist()
 
 
 def paired_t_test_rq1(per_domain_df):
@@ -45,37 +89,49 @@ def paired_t_test_rq1(per_domain_df):
     
     # Paired t-test (two-tailed)
     t_stat, p_value = stats.ttest_rel(hybrid, naive)
-    
-    # Effect size (Cohen's d for paired samples)
     diff = hybrid - naive
-    cohen_d = np.mean(diff) / np.std(diff, ddof=1)
-    
+
+    # Effect size (Cohen's d for paired samples)
+    cohen_d = np.mean(diff) / np.std(diff, ddof=1) if np.std(diff, ddof=1) > 0 else 0.0
+
+    # 95% CI for mean difference
+    mean_diff, ci_low, ci_high = calculate_confidence_interval(diff, confidence=0.95)
+    ci_95 = [ci_low, ci_high]
+
+    # Per-domain CIs for difference (each domain is 1 obs so CI is degenerate; store point estimate)
+    per_domain_cis = {}
+    for i, d in enumerate(domains):
+        per_domain_cis[d] = {'diff': float(diff[i]), 'ci': [float(diff[i]), float(diff[i])]}
+
     logger.info(f"\nStatistical Test Results:")
     logger.info(f"  Mean Δ AUROC:        {np.mean(diff):+.4f}")
+    logger.info(f"  95% CI:              [{ci_low:.4f}, {ci_high:.4f}]")
     logger.info(f"  Std Δ AUROC:         {np.std(diff, ddof=1):.4f}")
     logger.info(f"  t-statistic:         {t_stat:.4f}")
     logger.info(f"  p-value (two-tailed): {p_value:.6f}")
     logger.info(f"  Cohen's d:           {cohen_d:.4f}")
     logger.info(f"  Degrees of freedom:  {len(hybrid)-1}")
-    
+
     if p_value < 0.05:
         logger.info(f"\n✅ RESULT: Hybrid features SIGNIFICANTLY outperform Naive baseline (p < 0.05)")
     else:
         logger.info(f"\n❌ RESULT: No significant difference between Hybrid and Naive (p ≥ 0.05)")
-    
+
     return {
         'test': 'RQ1: Paired t-test (Semantic+Context vs Naive-Only)',
-        'hybrid_mean': np.mean(hybrid),
-        'naive_mean': np.mean(naive),
-        'mean_improvement': np.mean(diff),
-        'std_improvement': np.std(diff, ddof=1),
-        't_statistic': t_stat,
-        'p_value': p_value,
-        'cohen_d': cohen_d,
-        'significant': p_value < 0.05,
+        'hybrid_mean': float(np.mean(hybrid)),
+        'naive_mean': float(np.mean(naive)),
+        'mean_improvement': mean_diff,
+        'ci_95': ci_95,
+        'std_improvement': float(np.std(diff, ddof=1)),
+        't_statistic': float(t_stat),
+        'p_value_raw': float(p_value),
+        'cohen_d': float(cohen_d),
+        'significant_raw': p_value < 0.05,
         'domains': domains.tolist(),
         'hybrid_aurocs': hybrid.tolist(),
-        'naive_aurocs': naive.tolist()
+        'naive_aurocs': naive.tolist(),
+        'per_domain_cis': per_domain_cis,
     }
 
 
@@ -105,37 +161,43 @@ def paired_t_test_rq2(per_domain_df):
     # Paired t-test (one-tailed: greater)
     t_stat, p_value_two_tailed = stats.ttest_rel(semantic, naive)
     p_value = p_value_two_tailed / 2 if t_stat > 0 else 1 - (p_value_two_tailed / 2)
-    
-    # Effect size (Cohen's d for paired samples)
     diff = semantic - naive
-    cohen_d = np.mean(diff) / np.std(diff, ddof=1)
-    
+
+    # Effect size (Cohen's d for paired samples)
+    cohen_d = np.mean(diff) / np.std(diff, ddof=1) if np.std(diff, ddof=1) > 0 else 0.0
+
+    # 95% CI for mean difference (two-sided CI; one-tailed test interpretation in text)
+    mean_diff, ci_low, ci_high = calculate_confidence_interval(diff, confidence=0.95)
+    ci_95 = [ci_low, ci_high]
+
     logger.info(f"\nStatistical Test Results:")
     logger.info(f"  Mean Δ AUROC:        {np.mean(diff):+.4f}")
+    logger.info(f"  95% CI:              [{ci_low:.4f}, {ci_high:.4f}]")
     logger.info(f"  Std Δ AUROC:         {np.std(diff, ddof=1):.4f}")
     logger.info(f"  t-statistic:         {t_stat:.4f}")
     logger.info(f"  p-value (one-tailed): {p_value:.6f}")
     logger.info(f"  Cohen's d:           {cohen_d:.4f}")
     logger.info(f"  Degrees of freedom:  {len(semantic)-1}")
-    
+
     if p_value < 0.05 and t_stat > 0:
         logger.info(f"\n✅ RESULT: Semantic uncertainty SIGNIFICANTLY outperforms Naive confidence (p < 0.05)")
     else:
         logger.info(f"\n❌ RESULT: No significant improvement of Semantic over Naive (p ≥ 0.05 or negative effect)")
-    
+
     return {
         'test': 'RQ2: Paired t-test (Semantic-Only vs Naive-Only, one-tailed)',
-        'semantic_mean': np.mean(semantic),
-        'naive_mean': np.mean(naive),
-        'mean_improvement': np.mean(diff),
-        'std_improvement': np.std(diff, ddof=1),
-        't_statistic': t_stat,
-        'p_value_one_tailed': p_value,
-        'cohen_d': cohen_d,
-        'significant': p_value < 0.05 and t_stat > 0,
+        'semantic_mean': float(np.mean(semantic)),
+        'naive_mean': float(np.mean(naive)),
+        'mean_improvement': mean_diff,
+        'ci_95': ci_95,
+        'std_improvement': float(np.std(diff, ddof=1)),
+        't_statistic': float(t_stat),
+        'p_value_raw': float(p_value),
+        'cohen_d': float(cohen_d),
+        'significant_raw': p_value < 0.05 and t_stat > 0,
         'domains': domains.tolist(),
         'semantic_aurocs': semantic.tolist(),
-        'naive_aurocs': naive.tolist()
+        'naive_aurocs': naive.tolist(),
     }
 
 
@@ -176,25 +238,47 @@ def chi_square_test_rq3a(features_dir):
     # Chi-square test
     contingency_array = np.array(contingency_table)
     chi2, p_value, dof, expected = stats.chi2_contingency(contingency_array)
-    
+
+    # 95% CI for each domain's hallucination rate (Wilson score approximation)
+    def proportion_ci(x, n, confidence=0.95):
+        if n == 0:
+            return 0.0, 0.0, 0.0
+        p = x / n
+        z = stats.norm.ppf((1 + confidence) / 2)
+        se = np.sqrt(p * (1 - p) / n)
+        margin = z * se
+        low = max(0, p - margin)
+        high = min(1, p + margin)
+        return float(p), float(low), float(high)
+
+    rate_cis = {}
+    for i, d in enumerate(domain_names):
+        x, n = contingency_table[i][0], contingency_table[i][0] + contingency_table[i][1]
+        p, low, high = proportion_ci(x, n)
+        rate_cis[d] = {'rate': p, 'ci_95': [low, high]}
+
     logger.info(f"\nChi-square Test Results:")
     logger.info(f"  Chi-square statistic: {chi2:.4f}")
     logger.info(f"  p-value:              {p_value:.6f}")
     logger.info(f"  Degrees of freedom:   {dof}")
-    
+    for d in domain_names:
+        r = rate_cis[d]
+        logger.info(f"  {d}: rate={r['rate']:.3f}, 95% CI=[{r['ci_95'][0]:.3f}, {r['ci_95'][1]:.3f}]")
+
     if p_value < 0.05:
         logger.info(f"\n✅ RESULT: Hallucination rates SIGNIFICANTLY differ across domains (p < 0.05)")
     else:
         logger.info(f"\n❌ RESULT: No significant difference in hallucination rates across domains (p ≥ 0.05)")
-    
+
     return {
         'test': 'RQ3a: Chi-square test (hallucination rate differences)',
-        'chi_square': chi2,
-        'p_value': p_value,
-        'degrees_of_freedom': dof,
-        'significant': p_value < 0.05,
+        'chi_square': float(chi2),
+        'p_value_raw': float(p_value),
+        'degrees_of_freedom': int(dof),
+        'significant_raw': p_value < 0.05,
         'domains': domain_names,
-        'contingency_table': contingency_array.tolist()
+        'contingency_table': contingency_array.tolist(),
+        'rate_ci_per_domain': rate_cis,
     }
 
 
@@ -289,10 +373,38 @@ def feature_importance_variability_rq3c(ablation_dir):
     }
 
 
+def convert_to_serializable(obj):
+    """Convert numpy/types for JSON."""
+    if isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_serializable(v) for v in obj]
+    elif isinstance(obj, (bool, np.bool_)):
+        return int(obj)
+    elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+
+def _run_rq1_rq2_with_metric(per_domain_df, metric_col='auroc_cv_mean'):
+    """Run RQ1 and RQ2 using a given metric column (e.g. auroc_cv_mean instead of auroc)."""
+    if metric_col not in per_domain_df.columns:
+        return None, None
+    df = per_domain_df.copy()
+    df['auroc'] = df[metric_col].values
+    rq1 = paired_t_test_rq1(df)
+    rq2 = paired_t_test_rq2(df)
+    return rq1, rq2
+
+
 def main():
     """Main entry point."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(
         description="Run statistical tests for research questions"
     )
@@ -314,74 +426,87 @@ def main():
         default='outputs/research_questions',
         help='Output directory for results'
     )
-    
+
     args = parser.parse_args()
-    
+
     try:
         logger.info("="*80)
         logger.info("STATISTICAL TESTS FOR RESEARCH QUESTIONS")
         logger.info("="*80)
-        
-        # Load per-domain breakdown
+
         per_domain_path = Path(args.output_dir) / 'per_domain_ablation_breakdown.csv'
         if not per_domain_path.exists():
             logger.error(f"Per-domain breakdown not found: {per_domain_path}")
             logger.error("Run aggregate_ablation_results.py first!")
             return
-        
+
         per_domain_df = pd.read_csv(per_domain_path)
-        
-        # Run statistical tests
+
+        # --- Single-split tests ---
         results = {}
-        
-        # RQ1: Hybrid vs Naive
         results['rq1'] = paired_t_test_rq1(per_domain_df)
-        
-        # RQ2: Semantic vs Naive
         results['rq2'] = paired_t_test_rq2(per_domain_df)
-        
-        # RQ3a: Hallucination rate differences
         results['rq3a'] = chi_square_test_rq3a(args.features_dir)
-        
-        # RQ3c: Feature importance variability
+
         variability_df, rq3c_summary = feature_importance_variability_rq3c(args.ablation_dir)
         results['rq3c'] = rq3c_summary
-        
-        # Save results
+
+        # Multiple comparison correction (3 primary tests)
+        p_values = [
+            results['rq1']['p_value_raw'],
+            results['rq2']['p_value_raw'],
+            results['rq3a']['p_value_raw'],
+        ]
+        test_names = ['RQ1 (Hybrid vs Naive)', 'RQ2 (Semantic vs Naive)', 'RQ3a (Chi-square rates)']
+        corrected_alpha, bonferroni_reject = bonferroni_correction(p_values, alpha=0.05)
+        p_fdr, fdr_reject = fdr_correction(p_values, alpha=0.05)
+
+        # Bonferroni adjusted p-value = min(1, p * n)
+        p_bonferroni = [min(1.0, p * N_PRIMARY_TESTS) for p in p_values]
+
+        results['rq1']['p_value_bonferroni'] = p_bonferroni[0]
+        results['rq1']['p_value_fdr'] = p_fdr[0]
+        results['rq1']['significant_bonferroni'] = bonferroni_reject[0]
+        results['rq1']['significant_fdr'] = fdr_reject[0]
+        results['rq2']['p_value_bonferroni'] = p_bonferroni[1]
+        results['rq2']['p_value_fdr'] = p_fdr[1]
+        results['rq2']['significant_bonferroni'] = bonferroni_reject[1]
+        results['rq2']['significant_fdr'] = fdr_reject[1]
+        results['rq3a']['p_value_bonferroni'] = p_bonferroni[2]
+        results['rq3a']['p_value_fdr'] = p_fdr[2]
+        results['rq3a']['significant_bonferroni'] = bonferroni_reject[2]
+        results['rq3a']['significant_fdr'] = fdr_reject[2]
+
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-        
-        # Save summary JSON (convert booleans to int for JSON compatibility)
-        import json
-        
-        def convert_to_serializable(obj):
-            if isinstance(obj, dict):
-                return {k: convert_to_serializable(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_to_serializable(v) for v in obj]
-            elif isinstance(obj, (bool, np.bool_)):
-                return int(obj)
-            elif isinstance(obj, (np.integer, np.int64, np.int32)):
-                return int(obj)
-            elif isinstance(obj, (np.floating, np.float64, np.float32)):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            else:
-                return obj
-        
+
+        # Save multiple comparison corrections CSV
+        mc_df = pd.DataFrame({
+            'test': test_names,
+            'p_value_raw': p_values,
+            'p_value_bonferroni': p_bonferroni,
+            'p_value_fdr': p_fdr,
+            'significant_bonferroni': bonferroni_reject,
+            'significant_fdr': fdr_reject,
+            'bonferroni_alpha': corrected_alpha,
+        })
+        mc_path = Path(args.output_dir) / 'multiple_comparison_corrections.csv'
+        mc_df.to_csv(mc_path, index=False)
+        logger.info(f"✓ Multiple comparison corrections saved to {mc_path}")
+
         results_serializable = convert_to_serializable(results)
-        
-        summary_path = Path(args.output_dir) / 'statistical_tests_summary.json'
+        summary_path = Path(args.output_dir) / 'statistical_tests_summary_single_split.json'
         with open(summary_path, 'w') as f:
             json.dump(results_serializable, f, indent=2)
-        logger.info(f"\n✓ Summary saved to {summary_path}")
-        
-        # Save feature variability CSV
+        logger.info(f"✓ Summary (single-split) saved to {summary_path}")
+
+        # Backward compatibility
+        with open(Path(args.output_dir) / 'statistical_tests_summary.json', 'w') as f:
+            json.dump(results_serializable, f, indent=2)
+
         variability_path = Path(args.output_dir) / 'rq3c_feature_importance_variability.csv'
         variability_df.to_csv(variability_path, index=False)
         logger.info(f"✓ Feature variability saved to {variability_path}")
-        
-        # Create RQ3a hallucination rates CSV
+
         rq3a_df = pd.DataFrame({
             'domain': results['rq3a']['domains'],
             'hallucinations': [row[0] for row in results['rq3a']['contingency_table']],
@@ -389,15 +514,57 @@ def main():
         })
         rq3a_df['total'] = rq3a_df['hallucinations'] + rq3a_df['faithful']
         rq3a_df['hallucination_rate'] = rq3a_df['hallucinations'] / rq3a_df['total']
-        
         rq3a_path = Path(args.output_dir) / 'rq3a_hallucination_rates.csv'
         rq3a_df.to_csv(rq3a_path, index=False)
         logger.info(f"✓ Hallucination rates saved to {rq3a_path}")
-        
+
+        # --- CV-based tests (if auroc_cv_mean present) ---
+        if 'auroc_cv_mean' in per_domain_df.columns:
+            logger.info("\n" + "="*80)
+            logger.info("RUNNING CV-BASED STATISTICAL TESTS")
+            logger.info("="*80)
+            rq1_cv, rq2_cv = _run_rq1_rq2_with_metric(per_domain_df, 'auroc_cv_mean')
+            if rq1_cv is not None and rq2_cv is not None:
+                p_cv = [rq1_cv['p_value_raw'], rq2_cv['p_value_raw']]
+                _, bonf_cv = bonferroni_correction(p_cv + [results['rq3a']['p_value_raw']], alpha=0.05)
+                p_fdr_cv, fdr_cv = fdr_correction(p_cv + [results['rq3a']['p_value_raw']], alpha=0.05)
+                rq1_cv['p_value_bonferroni'] = min(1.0, rq1_cv['p_value_raw'] * N_PRIMARY_TESTS)
+                rq1_cv['p_value_fdr'] = p_fdr_cv[0]
+                rq1_cv['significant_bonferroni'] = bonf_cv[0]
+                rq1_cv['significant_fdr'] = fdr_cv[0]
+                rq2_cv['p_value_bonferroni'] = min(1.0, rq2_cv['p_value_raw'] * N_PRIMARY_TESTS)
+                rq2_cv['p_value_fdr'] = p_fdr_cv[1]
+                rq2_cv['significant_bonferroni'] = bonf_cv[1]
+                rq2_cv['significant_fdr'] = fdr_cv[1]
+                results_cv = {
+                    'rq1': rq1_cv,
+                    'rq2': rq2_cv,
+                    'rq3a': results['rq3a'],
+                    'rq3c': results['rq3c'],
+                }
+                cv_path = Path(args.output_dir) / 'statistical_tests_summary_cv.json'
+                with open(cv_path, 'w') as f:
+                    json.dump(convert_to_serializable(results_cv), f, indent=2)
+                logger.info(f"✓ CV-based summary saved to {cv_path}")
+                comparison = {
+                    'rq1_single_support': bool(results['rq1']['significant_raw']),
+                    'rq1_cv_support': bool(rq1_cv['significant_raw']),
+                    'rq1_single_p': float(results['rq1']['p_value_raw']),
+                    'rq1_cv_p': float(rq1_cv['p_value_raw']),
+                    'rq2_single_support': bool(results['rq2']['significant_raw']),
+                    'rq2_cv_support': bool(rq2_cv['significant_raw']),
+                    'rq2_single_p': float(results['rq2']['p_value_raw']),
+                    'rq2_cv_p': float(rq2_cv['p_value_raw']),
+                }
+                comp_path = Path(args.output_dir) / 'statistical_tests_comparison.json'
+                with open(comp_path, 'w') as f:
+                    json.dump(convert_to_serializable(comparison), f, indent=2)
+                logger.info(f"✓ Single vs CV comparison saved to {comp_path}")
+
         logger.info("\n" + "="*80)
         logger.info("ALL STATISTICAL TESTS COMPLETE")
         logger.info("="*80)
-        
+
     except Exception as e:
         logger.error(f"Statistical tests failed: {e}", exc_info=True)
         raise
