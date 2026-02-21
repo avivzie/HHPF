@@ -3,6 +3,7 @@ Generate individual domain visualization figures using trained models.
 
 Uses the newly trained consistent models and saved metrics to generate:
 - ROC Curve (with AUROC)
+- Precision-Recall curve (with AUPRC) and F1 vs threshold
 - ARC (Accuracy-Rejection Curve)
 - Calibration Plot (with ECE)
 - Confusion Matrix
@@ -56,6 +57,124 @@ def plot_roc_curve(metrics, domain, output_dir):
         plt.savefig(path, bbox_inches='tight', dpi=300)
         logger.info(f"  ✓ Saved {path}")
     
+    plt.close()
+
+
+def _derive_pr_from_roc(metrics):
+    """Derive precision, recall, and F1 from ROC curve and confusion matrix (for existing JSONs)."""
+    total_pos = metrics['true_positives'] + metrics['false_negatives']
+    total_neg = metrics['true_negatives'] + metrics['false_positives']
+    fpr = np.array(metrics['roc_curve']['fpr'])
+    tpr = np.array(metrics['roc_curve']['tpr'])
+    thresholds = np.array(metrics['roc_curve']['thresholds'])
+    recall = tpr
+    denom = tpr * total_pos + fpr * total_neg
+    precision = np.ones_like(tpr, dtype=float)
+    valid = denom > 0
+    precision[valid] = (tpr[valid] * total_pos) / denom[valid]
+    f1 = np.where(
+        (precision + recall) > 0,
+        2 * precision * recall / (precision + recall),
+        0.0,
+    )
+    auprc = np.trapezoid(precision, recall)
+    if len(thresholds) > 0:
+        optimal_idx = int(np.nanargmax(f1))
+        optimal_threshold = float(thresholds[optimal_idx])
+        optimal_f1 = float(f1[optimal_idx])
+    else:
+        optimal_idx = 0
+        optimal_threshold = 0.5
+        optimal_f1 = 0.0
+    return {
+        'precision': precision,
+        'recall': recall,
+        'thresholds': thresholds,
+        'auprc': auprc,
+        'optimal_threshold': optimal_threshold,
+        'optimal_f1': optimal_f1,
+        'optimal_idx': optimal_idx,
+        'baseline': total_pos / (total_pos + total_neg) if (total_pos + total_neg) > 0 else 0.0,
+    }
+
+
+def plot_pr_curve(metrics, domain, output_dir):
+    """Plot Precision-Recall curve and F1 vs threshold (two panels)."""
+    if 'pr_curve' in metrics and 'auprc' in metrics:
+        pr = metrics['pr_curve']
+        precision = np.array(pr['precision'])
+        recall = np.array(pr['recall'])
+        thresholds = np.array(pr['thresholds'])
+        auprc = metrics['auprc']
+        optimal_threshold = pr['optimal_threshold']
+        optimal_f1 = pr['optimal_f1']
+        total_pos = metrics['true_positives'] + metrics['false_negatives']
+        total_neg = metrics['true_negatives'] + metrics['false_positives']
+        baseline = total_pos / (total_pos + total_neg) if (total_pos + total_neg) > 0 else 0.0
+        # F1 per threshold (align with thresholds length: precision/recall have one more point)
+        f1 = 2 * precision * recall / (precision + recall + 1e-10)
+        f1_at_thresholds = f1[:-1] if len(f1) > len(thresholds) else f1[: len(thresholds)]
+        thresholds_f1 = thresholds if len(thresholds) > 0 else np.array([0.5])
+    else:
+        data = _derive_pr_from_roc(metrics)
+        precision = data['precision']
+        recall = data['recall']
+        thresholds = data['thresholds']
+        auprc = data['auprc']
+        optimal_threshold = data['optimal_threshold']
+        optimal_f1 = data['optimal_f1']
+        baseline = data['baseline']
+        f1 = np.where(
+            (precision + recall) > 0,
+            2 * precision * recall / (precision + recall),
+            0.0,
+        )
+        f1_at_thresholds = f1
+        thresholds_f1 = thresholds if len(thresholds) > 0 else np.array([0.5])
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Left: PR curve
+    ax1.plot(recall, precision, label=f'Full Model (AUPRC={auprc:.3f})', linewidth=2, color='#2ca02c')
+    ax1.axhline(y=baseline, color='gray', linestyle='--', linewidth=1, label=f'Random (baseline={baseline:.3f})')
+    opt_idx = int(np.nanargmin(np.abs(thresholds - optimal_threshold))) if len(thresholds) > 0 else 0
+    if len(recall) > 0 and len(precision) > 0 and opt_idx < len(recall) and opt_idx < len(precision):
+        ax1.scatter(
+            [recall[opt_idx]],
+            [precision[opt_idx]],
+            marker='*',
+            s=200,
+            color='gold',
+            edgecolors='black',
+            zorder=5,
+            label=f'Optimal F1 (t={optimal_threshold:.3f}, F1={optimal_f1:.3f})',
+        )
+    ax1.set_xlabel('Recall', fontsize=12)
+    ax1.set_ylabel('Precision', fontsize=12)
+    ax1.set_title('Precision-Recall Curve', fontsize=14, fontweight='bold')
+    ax1.legend(loc='best', fontsize=9)
+    ax1.set_xlim(0, 1)
+    ax1.set_ylim(0, 1)
+    ax1.grid(True, alpha=0.3)
+
+    # Right: F1 vs threshold
+    ax2.plot(thresholds_f1, f1_at_thresholds, linewidth=2, color='#1f77b4')
+    ax2.axvline(x=optimal_threshold, color='red', linestyle='--', linewidth=1.5, label=f'Optimal threshold={optimal_threshold:.3f}')
+    ax2.set_xlabel('Decision Threshold', fontsize=12)
+    ax2.set_ylabel('F1 Score', fontsize=12)
+    ax2.set_title('F1 Score vs Threshold', fontsize=14, fontweight='bold')
+    ax2.legend(loc='best', fontsize=9)
+    ax2.set_xlim(0, 1)
+    ax2.set_ylim(0, 1)
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    for ext in ['pdf', 'png']:
+        path = Path(output_dir) / f'pr_curve_{domain}.{ext}'
+        plt.savefig(path, bbox_inches='tight', dpi=300)
+        logger.info(f"  ✓ Saved {path}")
+
     plt.close()
 
 
@@ -226,6 +345,7 @@ def generate_domain_figures(domain, metrics_path, importance_path, output_dir):
     # Generate all figures
     logger.info(f"\nGenerating figures...")
     plot_roc_curve(metrics, domain, output_dir)
+    plot_pr_curve(metrics, domain, output_dir)
     plot_arc(metrics, domain, output_dir)
     plot_calibration(metrics, domain, output_dir)
     plot_confusion_matrix(metrics, domain, output_dir)

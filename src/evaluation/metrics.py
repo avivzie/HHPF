@@ -14,7 +14,9 @@ from typing import Dict, List, Tuple, Optional
 from sklearn.metrics import (
     roc_auc_score, roc_curve, accuracy_score,
     precision_score, recall_score, f1_score,
-    confusion_matrix
+    confusion_matrix,
+    precision_recall_curve,
+    average_precision_score,
 )
 import logging
 
@@ -52,6 +54,28 @@ class MetricsCalculator:
             'fpr': fpr,
             'tpr': tpr,
             'thresholds': thresholds
+        }
+    
+    def calculate_pr_curve(
+        self,
+        y_true: np.ndarray,
+        y_proba: np.ndarray
+    ) -> Dict[str, any]:
+        """
+        Calculate Precision-Recall curve and AUPRC (area under PR curve).
+        Useful for imbalanced domains where AUROC can be misleading.
+        """
+        precision, recall, thresholds = precision_recall_curve(y_true, y_proba)
+        auprc = average_precision_score(y_true, y_proba)
+        f1 = 2 * precision * recall / (precision + recall + 1e-10)
+        optimal_idx = np.argmax(f1[:-1]) if len(thresholds) > 0 else 0
+        return {
+            'auprc': auprc,
+            'precision': precision,
+            'recall': recall,
+            'thresholds': thresholds,
+            'optimal_threshold': float(thresholds[optimal_idx]) if len(thresholds) > 0 else 0.5,
+            'optimal_f1': float(f1[optimal_idx]),
         }
     
     def calculate_arc(
@@ -211,6 +235,17 @@ class MetricsCalculator:
             'fpr': auroc_data['fpr'],
             'tpr': auroc_data['tpr'],
             'thresholds': auroc_data['thresholds']
+        }
+        
+        # PR curve (AUPRC; informative for imbalanced domains)
+        pr_data = self.calculate_pr_curve(y_true, y_proba)
+        metrics['auprc'] = pr_data['auprc']
+        metrics['pr_curve'] = {
+            'precision': pr_data['precision'],
+            'recall': pr_data['recall'],
+            'thresholds': pr_data['thresholds'],
+            'optimal_threshold': pr_data['optimal_threshold'],
+            'optimal_f1': pr_data['optimal_f1'],
         }
         
         # ARC
